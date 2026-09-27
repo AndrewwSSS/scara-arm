@@ -1,5 +1,8 @@
 #include <Arduino.h>
+#include <StepperManager.h>
 #include <A4988Stepper.h>
+#include <HomedStepper.h>
+#include <LinearRamp.h>
 
 
 // --- Arduino CNC Shield v3 pin map ----------------------------------------
@@ -20,57 +23,123 @@ struct AxisPins {
 
 static constexpr uint8_t NO_LIMIT = 0xFF;
 
-static constexpr AxisPins CNC_X = { "X",  2,  5, 9       };
-static constexpr AxisPins CNC_Y = { "Y",  3,  6, 10      };
-static constexpr AxisPins CNC_Z = { "Z",  4,  7, 11      };
+static constexpr AxisPins CNC_X = { "X",  2,  5, A4        };
+static constexpr AxisPins CNC_Y = { "Y",  3,  6, NO_LIMIT       };
+static constexpr AxisPins CNC_Z = { "Z",  4,  7, NO_LIMIT       };
 static constexpr AxisPins CNC_A = { "A", 12, 13, NO_LIMIT };
 
-static constexpr AxisPins AXIS = CNC_Z;
+static const AxisPins AXES[] = { CNC_Z, CNC_Y, CNC_X, CNC_A };
+static constexpr uint8_t AXIS_COUNT = sizeof(AXES) / sizeof(AXES[0]);
 
+// Every socket shares this pin, so the fleet owns it rather than the axes: it
+// stays energised until every axis has gone quiet.
 static constexpr uint8_t EN_PIN = 8;   // shared enable, active LOW
 
 static constexpr uint16_t FULL_STEPS_PER_REV = 200;
 static constexpr uint8_t  MICROSTEPS         = 16;
 static constexpr uint16_t STEPS_PER_REV      = FULL_STEPS_PER_REV * MICROSTEPS;
 
-static constexpr unsigned long STEP_INTERVAL_US = 1000;
+static constexpr unsigned long STEP_INTERVAL_US = 200;
 
 // Steps moved by a bare 'f' / 'b' command.
 static constexpr long DEFAULT_JOG_STEPS = 100;
 
-A4988Stepper aAxis(AXIS.step, AXIS.dir, STEPS_PER_REV,
-                   EN_PIN, STEP_INTERVAL_US);
+static constexpr bool HOME_ON_START = true;
+
+// Release the coils once the whole fleet has been at rest this long
+static constexpr unsigned long IDLE_RELEASE_MS = 200;
+
+// The start interval has to be slow enough that the axis can pull in from rest,
+// and the ramp long enough that it reaches STEP_INTERVAL_US comfortably.
+static constexpr unsigned long RAMP_START_US = 1000;
+static constexpr uint16_t      RAMP_STEPS    = 1000;
+
+LinearRamp ramp(RAMP_START_US, RAMP_STEPS);
+
+StepperManager fleet(AXIS_COUNT, EN_PIN);
+
+static Stepper* makeAxis(const AxisPins& axis) {
+    // The EN pin is the fleet's, so the axes are built without one.
+    if (HOME_ON_START && axis.limit != NO_LIMIT) {
+        HomedStepper* homed = new HomedStepper(axis.step, axis.dir, STEPS_PER_REV,
+                                               axis.limit, A4988Stepper::NO_ENABLE_PIN,
+                                               STEP_INTERVAL_US);
+        homed->configureHoming(0, -1, 20000);
+        return homed;
+    }
+
+    return new A4988Stepper(axis.step, axis.dir, STEPS_PER_REV,
+                            A4988Stepper::NO_ENABLE_PIN, STEP_INTERVAL_US);
+}
+static constexpr uint8_t ALL_AXES = 0xFF;
+static uint8_t selected = (AXIS_COUNT > 0) ? 0 : ALL_AXES;
 
 static uint32_t moveStartedAt = 0;
 
+static bool isSelected(uint8_t id) {
+    return selected == ALL_AXES || selected == id;
+}
+
+static const char* selectionName() {
+    return (selected == ALL_AXES) ? "*" : AXES[selected].name;
+}
+
 static void printStatus() {
-    Serial.println(String("step=") + aAxis.getStep() +
-                   " target=" + aAxis.getTargetStep() +
-                   " state=" + (aAxis.getState() == Stepper::MOVING ? "MOVING" : "HOLD") +
-                   " debug=" + (aAxis.getDebug() ? "on" : "off"));
+    for (uint8_t i = 0; i < fleet.size(); i++) {
+        Serial.println(String(AXES[i].name) +
+                       (isSelected(i) ? " <" : "  ") +
+                       " step=" + fleet.getStep(i) +
+                       " target=" + fleet.getTargetStep(i) +
+                       " state=" + (fleet.isHold(i) ? "HOLD" : "MOVING") +
+                       " interval=" + fleet.getStepInterval(i) + "us" +
+                       " now=" + fleet.getCurrentInterval(i) + "us" +
+                       " ramp=" + (fleet.getProfile(i) ? String(ramp.getRampSteps()) : String("off")) +
+                       " debug=" + (fleet.getDebug(i) ? "on" : "off"));
+    }
+
+    unsigned long idle = fleet.getIdleRelease();
+    Serial.println(String("EN D") + fleet.getEnablePin() +
+                   " " + (fleet.isPowered() ? "energised" : "released") +
+                   ", release=" + (idle ? String(idle) + "ms" : String("off")));
 }
 
 static void printHelp() {
     Serial.println(F("commands:"));
-    Serial.println(F("  f[n]  jog n steps forward  (DIR high), default 10"));
-    Serial.println(F("  b[n]  jog n steps backward (DIR low),  default 10"));
-    Serial.println(F("  g<n>  go to absolute step n (may be negative)"));
-    Serial.println(F("  o     re-declare the current position as step 0"));
-    Serial.println(F("  s     status | d debug | ? help"));
+    Serial.println(F("  x|y|z|a  select that axis for the commands below"));
+    Serial.println(F("  *        select every axis at once"));
+    Serial.println(F("  f[n]     jog n steps forward  (DIR high), default 100"));
+    Serial.println(F("  b[n]     jog n steps backward (DIR low),  default 100"));
+    Serial.println(F("  g<n>     go to absolute step n (may be negative)"));
+    Serial.println(F("  o        re-declare the current position as step 0"));
+    Serial.println(F("  h        halt: cancel the move, hold here"));
+    Serial.println(F("  v[n]     step interval in us, lower is faster (bare v resets)"));
+    Serial.println(F("  r[n]     ramp over n steps (r0 = none, bare r toggles)"));
+    Serial.println(F("  p[n]     release the coils after n ms fleet idle (p0 = never)"));
+    Serial.println(F("  l        read each endstop pin right now (diagnostic)"));
+    Serial.println(F("  s        status | d debug | ? help"));
 }
 
 static void jog(long steps) {
-    aAxis.moveSteps(steps);
+    for (uint8_t i = 0; i < fleet.size(); i++) {
+        if (isSelected(i)) fleet.moveSteps(i, steps);
+    }
+
     moveStartedAt = millis();
-    Serial.println(String("-> ") + (steps >= 0 ? "+" : "") + steps +
-                   " steps, target " + aAxis.getTargetStep());
+    Serial.println(String("-> ") + selectionName() + " " +
+                   (steps >= 0 ? "+" : "") + steps + " steps");
+}
+static uint8_t axisFromLetter(char c) {
+    for (uint8_t i = 0; i < AXIS_COUNT; i++) {
+        if (tolower(AXES[i].name[0]) == c) return i;
+    }
+    return ALL_AXES;
 }
 
 static void handleCommand(String cmd) {
     cmd.trim();
     if (cmd.length() == 0) return;
 
-    char c = cmd.charAt(0);
+    char c = tolower(cmd.charAt(0));
     String rest = cmd.substring(1);
     rest.trim();
     // toInt() yields 0 for an empty or non-numeric tail, which is how a bare
@@ -80,41 +149,116 @@ static void handleCommand(String cmd) {
     switch (c) {
         case 'f':
             jog(n > 0 ? n : DEFAULT_JOG_STEPS);
-            break;
+            return;
         case 'b':
             jog(-(n > 0 ? n : DEFAULT_JOG_STEPS));
-            break;
+            return;
         case 'g':
-            aAxis.moveToStep(n);
+            for (uint8_t i = 0; i < fleet.size(); i++) {
+                if (isSelected(i)) fleet.moveToStep(i, n);
+            }
             moveStartedAt = millis();
-            Serial.println(String("-> absolute step ") + n);
-            break;
+            Serial.println(String("-> ") + selectionName() + " absolute step " + n);
+            return;
         case 'o':
-            aAxis.setOrigin(0);
-            Serial.println(F("origin reset, step 0 is here"));
-            break;
+            for (uint8_t i = 0; i < fleet.size(); i++) {
+                if (isSelected(i)) fleet.setOrigin(i);
+            }
+            Serial.println(String(selectionName()) + " origin reset, step 0 is here");
+            return;
+        case 'h':
+            for (uint8_t i = 0; i < fleet.size(); i++) {
+                if (isSelected(i)) fleet.stopHere(i);
+            }
+            Serial.println(String(selectionName()) + " halted");
+            return;
+        case 'l':
+            // Diagnostic only: the raw pin, and what the configured wiring mode
+            // makes of it. Moves nothing.
+            for (uint8_t i = 0; i < fleet.size(); i++) {
+                if (AXES[i].limit == NO_LIMIT) {
+                    Serial.println(String(AXES[i].name) + " no endstop");
+                    continue;
+                }
+
+                int raw = digitalRead(AXES[i].limit);
+                Serial.println(String(AXES[i].name) + " pin=" + AXES[i].limit +
+                               " reads=" + (raw == HIGH ? "HIGH" : "LOW") +
+                               " -> code says " + (raw == HIGH ? "TRIGGERED" : "clear"));
+            }
+            return;
+        case 'v': {
+            // Takes effect on the next pulse, mid-move included - there is no
+            // ramp, so a big jump under load is where a stepper loses steps.
+            unsigned long us = (n > 0) ? (unsigned long)n : STEP_INTERVAL_US;
+
+            for (uint8_t i = 0; i < fleet.size(); i++) {
+                if (isSelected(i)) fleet.setStepInterval(i, us);
+            }
+
+            Serial.println(String("-> ") + selectionName() + " interval " + us + "us");
+            return;
+        }
+        case 'r': {
+            // The ramp length is the shared profile's, so a number here moves
+            // every axis using it; what the selection controls is whether the
+            // axis is on the profile at all.
+            if (n > 0) ramp.setRampSteps((uint16_t)n);
+
+            bool off = (n == 0 && rest.length() > 0);
+            for (uint8_t i = 0; i < fleet.size(); i++) {
+                if (!isSelected(i)) continue;
+
+                bool on = off ? false
+                              : (rest.length() ? true : (fleet.getProfile(i) == nullptr));
+                fleet.setProfile(i, on ? &ramp : nullptr);
+            }
+
+            printStatus();
+            return;
+        }
+        case 'p': {
+            // One EN line for the shield, so this is a fleet-wide setting and
+            // ignores the axis selection. A bare 'p' toggles, which is the quick
+            // way to feel the difference on the shaft; 'p<n>' sets it outright.
+            unsigned long idle = (n > 0) ? (unsigned long)n : 0;
+            if (rest.length() == 0) {
+                idle = fleet.getIdleRelease() ? 0 : IDLE_RELEASE_MS;
+            }
+
+            fleet.setIdleRelease(idle);
+            // Turning it off does not re-energise on its own, and a released
+            // fleet would report positions it is not holding.
+            if (idle == 0) fleet.enable();
+
+            printStatus();
+            return;
+        }
         case 'd':
-            aAxis.toggleDebug();
-            Serial.println(String("debug ") + (aAxis.getDebug() ? "on" : "off"));
-            break;
-        case 's': printStatus(); break;
-        default:  printHelp();   break;
+            for (uint8_t i = 0; i < fleet.size(); i++) {
+                if (isSelected(i)) fleet.toggleDebug(i);
+            }
+            printStatus();
+            return;
+        case 's':
+            printStatus();
+            return;
+        case '*':
+            selected = ALL_AXES;
+            Serial.println(F("selected: every axis"));
+            return;
     }
+
+    uint8_t axis = axisFromLetter(c);
+    if (axis != ALL_AXES) {
+        selected = axis;
+        Serial.println(String("selected: ") + AXES[axis].name);
+        return;
+    }
+
+    printHelp();
 }
 
-// Line editing and echo happen on the host (see tools/monitor.py), so the
-// sketch never echoes - doing it at both ends would double every character.
-// It only buffers what arrives and dispatches on newline.
-//
-// Reading byte by byte rather than with readStringUntil() keeps this
-// non-blocking: every millisecond spent waiting on serial is a step pulse not
-// emitted.
-//
-// Control bytes and escape sequences are still dropped, as a guard against a
-// terminal that does not edit locally. Such a terminal sends a raw backspace
-// or an arrow key's "ESC [ A" straight into the command, where trim() would
-// not remove it and "b<BS>f" would still parse as 'b' - silently the wrong
-// command.
 static char    inputLine[24];
 static uint8_t inputLen = 0;
 static bool    inEscape = false;
@@ -154,33 +298,45 @@ static void readSerial() {
     }
 }
 
+static void onAxisReached(uint8_t id) {
+    Serial.println(String(AXES[id].name) + " reached step " + fleet.getStep(id) +
+                   " in " + (millis() - moveStartedAt) + " ms");
+}
+
 void setup() {
     Serial.begin(115200);
     while (!Serial) { /* Uno returns immediately; harmless on native-USB boards */ }
 
     Serial.println(F("\n=== CNC Shield v3 - step jog ==="));
-    Serial.println(String("socket=") + AXIS.name +
-                   " STEP=D" + AXIS.step + " DIR=D" + AXIS.dir + " EN=D" + EN_PIN);
+
+    for (uint8_t i = 0; i < AXIS_COUNT; i++) {
+        if (fleet.addMotor(makeAxis(AXES[i])) == StepperManager::INVALID_ID) {
+            Serial.println(String("axis ") + AXES[i].name + " not registered, out of memory");
+            break;
+        }
+
+        Serial.println(String("socket=") + AXES[i].name +
+                       " STEP=D" + AXES[i].step + " DIR=D" + AXES[i].dir +
+                       " EN=D" + EN_PIN);
+    }
+
     Serial.println(String("steps/rev=") + STEPS_PER_REV +
                    " (" + FULL_STEPS_PER_REV + " full x 1/" + MICROSTEPS + ")");
 
-    aAxis.begin();
-    //aAxis.disable();
+    fleet.setIdleRelease(IDLE_RELEASE_MS);
+    fleet.setProfiles(RAMP_STEPS ? &ramp : nullptr);
+    fleet.onReached(onAxisReached);
+    fleet.begin();
 
     printStatus();
     printHelp();
-    Serial.println(F("try: f  then  b   (100 steps out and back)"));
+    Serial.println(F("try: f  then  b(   100 steps out and back)"));
 }
 
 void loop() {
-    // Emits at most one step pulse per call and returns immediately, so the
-    // serial console stays responsive while the motor is turning.
-    aAxis.update();
-
-    if (aAxis.reachedTarget()) {
-        Serial.println(String("reached step ") + aAxis.getStep() +
-                       " in " + (millis() - moveStartedAt) + " ms");
-    }
+    // Emits at most one step pulse per axis per call and returns immediately,
+    // so the serial console stays responsive while the motors are turning.
+    fleet.update();
 
     readSerial();
 }

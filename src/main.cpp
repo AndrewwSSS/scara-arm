@@ -14,19 +14,29 @@
 //    Z    |  D4  | D7  |     D11      | hardwired
 //    A    |  D12 | D13 |    none      | needs two jumper wires (see below)
 
+// Everything an axis needs, homing included. The homing fields are only read
+// when limit is a real pin; an axis with NO_LIMIT ignores them.
 struct AxisPins {
     const char* name;
     uint8_t step;
     uint8_t dir;
     uint8_t limit;
+
+    HomedStepper::LimitWiring wiring;    // prefer NORMALLY_CLOSED: a cut wire then reads as a hit
+    int8_t        homeDirection;         // -1: switch at the low end of travel, +1: high end
+    long          restStep;              // where the axis parks after homing, in steps from the switch
+    long          homeMaxSteps;          // seek allowance; a dead switch fails instead of crashing
+    long          homeBackoffSteps;      // retreat increment while releasing the switch
+    unsigned long homeSlowIntervalUs;    // pace of the slow re-approach that sets step 0
 };
 
 static constexpr uint8_t NO_LIMIT = 0xFF;
 
-static constexpr AxisPins CNC_X = { "X",  2,  5, A4        };
-static constexpr AxisPins CNC_Y = { "Y",  3,  6, NO_LIMIT       };
-static constexpr AxisPins CNC_Z = { "Z",  4,  7, NO_LIMIT       };
-static constexpr AxisPins CNC_A = { "A", 12, 13, NO_LIMIT };
+//                                name  STEP DIR  LIMIT     wiring                         dir  rest  max    backoff slowUs
+static constexpr AxisPins CNC_X = { "X",  2,  5, A4,       HomedStepper::NORMALLY_CLOSED, 1,  0,    103500, 40,     4000 };
+static constexpr AxisPins CNC_Y = { "Y",  3,  6, NO_LIMIT, HomedStepper::NORMALLY_CLOSED, -1,  0,    0,     0,      0    };
+static constexpr AxisPins CNC_Z = { "Z",  4,  7, NO_LIMIT, HomedStepper::NORMALLY_CLOSED, -1,  0,    0,     0,      0    };
+static constexpr AxisPins CNC_A = { "A", 12, 13, NO_LIMIT, HomedStepper::NORMALLY_CLOSED, -1,  0,    0,     0,      0    };
 
 static const AxisPins AXES[] = { CNC_Z, CNC_Y, CNC_X, CNC_A };
 static constexpr uint8_t AXIS_COUNT = sizeof(AXES) / sizeof(AXES[0]);
@@ -63,8 +73,9 @@ static Stepper* makeAxis(const AxisPins& axis) {
     if (HOME_ON_START && axis.limit != NO_LIMIT) {
         HomedStepper* homed = new HomedStepper(axis.step, axis.dir, STEPS_PER_REV,
                                                axis.limit, A4988Stepper::NO_ENABLE_PIN,
-                                               STEP_INTERVAL_US);
-        homed->configureHoming(0, -1, 20000);
+                                               STEP_INTERVAL_US, axis.wiring);
+        homed->configureHoming(axis.restStep, axis.homeDirection, axis.homeMaxSteps,
+                               axis.homeBackoffSteps, axis.homeSlowIntervalUs);
         return homed;
     }
 
@@ -182,9 +193,14 @@ static void handleCommand(String cmd) {
                 }
 
                 int raw = digitalRead(AXES[i].limit);
+                // INPUT_PULLUP idles HIGH: an NC switch opens (HIGH) when hit,
+                // an NO switch closes to GND (LOW).
+                bool nc = (AXES[i].wiring == HomedStepper::NORMALLY_CLOSED);
+                bool triggered = nc ? (raw == HIGH) : (raw == LOW);
                 Serial.println(String(AXES[i].name) + " pin=" + AXES[i].limit +
+                               (nc ? " NC" : " NO") +
                                " reads=" + (raw == HIGH ? "HIGH" : "LOW") +
-                               " -> code says " + (raw == HIGH ? "TRIGGERED" : "clear"));
+                               " -> code says " + (triggered ? "TRIGGERED" : "clear"));
             }
             return;
         case 'v': {
@@ -330,7 +346,6 @@ void setup() {
 
     printStatus();
     printHelp();
-    Serial.println(F("try: f  then  b(   100 steps out and back)"));
 }
 
 void loop() {

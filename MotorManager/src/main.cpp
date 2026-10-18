@@ -1,7 +1,8 @@
 #include <Arduino.h>
 #include <StepperManager.h>
 #include <A4988Stepper.h>
-#include <HomedStepper.h>
+#include <Endstop.h>
+#include <Homing.h>
 #include <LinearRamp.h>
 
 
@@ -12,31 +13,31 @@
 //    X    |  D2  | D5  |     D9       | hardwired
 //    Y    |  D3  | D6  |     D10      | hardwired
 //    Z    |  D4  | D7  |     D11      | hardwired
-//    A    |  D12 | D13 |    none      | needs two jumper wires (see below)
+//    A    |  D12 | D13 |    none      |
 
-// Everything an axis needs, homing included. The homing fields are only read
-// when limit is a real pin; an axis with NO_LIMIT ignores them.
+// Limit switches, one per pin, wired COM -> GND and NC -> pin. Declared here
+// because the axes borrow them.
+Endstop xMax(A4, Endstop::NORMALLY_CLOSED, Endstop::MAX);
+
+// Everything an axis needs. min / max are the switches at each end of travel,
+// nullptr where there is none; homing is only read when the axis has a switch
+// on the side it names.
 struct AxisPins {
-    const char* name;
-    uint8_t step;
-    uint8_t dir;
-    uint8_t limit;
-
-    HomedStepper::LimitWiring wiring;    // prefer NORMALLY_CLOSED: a cut wire then reads as a hit
-    int8_t        homeDirection;         // -1: switch at the low end of travel, +1: high end
-    long          restStep;              // where the axis parks after homing, in steps from the switch
-    long          homeMaxSteps;          // seek allowance; a dead switch fails instead of crashing
-    long          homeBackoffSteps;      // retreat increment while releasing the switch
-    unsigned long homeSlowIntervalUs;    // pace of the slow re-approach that sets step 0
+    const char*  name;
+    uint8_t      step;
+    uint8_t      dir;
+    Endstop*     min;
+    Endstop*     max;
+    HomingConfig homing;
 };
 
-static constexpr uint8_t NO_LIMIT = 0xFF;
+static constexpr HomingConfig NO_HOMING = { Endstop::MIN, 0, 0, 0, 0 };
 
-//                                name  STEP DIR  LIMIT     wiring                         dir  rest  max    backoff slowUs
-static constexpr AxisPins CNC_X = { "X",  2,  5, A4,       HomedStepper::NORMALLY_CLOSED, 1,  0,    103500, 40,     4000 };
-static constexpr AxisPins CNC_Y = { "Y",  3,  6, NO_LIMIT, HomedStepper::NORMALLY_CLOSED, -1,  0,    0,     0,      0    };
-static constexpr AxisPins CNC_Z = { "Z",  4,  7, NO_LIMIT, HomedStepper::NORMALLY_CLOSED, -1,  0,    0,     0,      0    };
-static constexpr AxisPins CNC_A = { "A", 12, 13, NO_LIMIT, HomedStepper::NORMALLY_CLOSED, -1,  0,    0,     0,      0    };
+//                                  name STEP DIR  min      max     homing: towards       rest  maxSteps backoff slowUs
+static constexpr AxisPins CNC_X = { "X",  2,  5, nullptr, &xMax,  { Endstop::MAX,         0,    103500,  40,     4000 } };
+static constexpr AxisPins CNC_Y = { "Y",  3,  6, nullptr, nullptr, NO_HOMING };
+static constexpr AxisPins CNC_Z = { "Z",  4,  7, nullptr, nullptr, NO_HOMING };
+static constexpr AxisPins CNC_A = { "A", 12, 13, nullptr, nullptr, NO_HOMING };
 
 static const AxisPins AXES[] = { CNC_Z, CNC_Y, CNC_X, CNC_A };
 static constexpr uint8_t AXIS_COUNT = sizeof(AXES) / sizeof(AXES[0]);
@@ -70,17 +71,21 @@ StepperManager fleet(AXIS_COUNT, EN_PIN);
 
 static Stepper* makeAxis(const AxisPins& axis) {
     // The EN pin is the fleet's, so the axes are built without one.
-    if (HOME_ON_START && axis.limit != NO_LIMIT) {
-        HomedStepper* homed = new HomedStepper(axis.step, axis.dir, STEPS_PER_REV,
-                                               axis.limit, A4988Stepper::NO_ENABLE_PIN,
-                                               STEP_INTERVAL_US, axis.wiring);
-        homed->configureHoming(axis.restStep, axis.homeDirection, axis.homeMaxSteps,
-                               axis.homeBackoffSteps, axis.homeSlowIntervalUs);
-        return homed;
-    }
+    Stepper* stepper = new A4988Stepper(axis.step, axis.dir, STEPS_PER_REV,
+                                        A4988Stepper::NO_ENABLE_PIN, STEP_INTERVAL_US);
+    if (stepper == nullptr) return nullptr;
 
-    return new A4988Stepper(axis.step, axis.dir, STEPS_PER_REV,
-                            A4988Stepper::NO_ENABLE_PIN, STEP_INTERVAL_US);
+    stepper->setEndstop(axis.min);   // nullptr is ignored
+    stepper->setEndstop(axis.max);
+    return stepper;
+}
+
+static bool hasEndstops(const AxisPins& axis) {
+    return axis.min != nullptr || axis.max != nullptr;
+}
+
+static Endstop* homingEndstop(const AxisPins& axis) {
+    return (axis.homing.towards == Endstop::MIN) ? axis.min : axis.max;
 }
 static constexpr uint8_t ALL_AXES = 0xFF;
 static uint8_t selected = (AXIS_COUNT > 0) ? 0 : ALL_AXES;
@@ -105,7 +110,9 @@ static void printStatus() {
                        " interval=" + fleet.getStepInterval(i) + "us" +
                        " now=" + fleet.getCurrentInterval(i) + "us" +
                        " ramp=" + (fleet.getProfile(i) ? String(ramp.getRampSteps()) : String("off")) +
-                       " debug=" + (fleet.getDebug(i) ? "on" : "off"));
+                       " debug=" + (fleet.getDebug(i) ? "on" : "off") +
+                       (homingEndstop(AXES[i]) ? String(" homing=") + homingResultName(fleet.getHomingResult(i))
+                                               : String("")));
     }
 
     unsigned long idle = fleet.getIdleRelease();
@@ -123,11 +130,37 @@ static void printHelp() {
     Serial.println(F("  g<n>     go to absolute step n (may be negative)"));
     Serial.println(F("  o        re-declare the current position as step 0"));
     Serial.println(F("  h        halt: cancel the move, hold here"));
+    Serial.println(F("  home     home against the endstop (blocking; '*' = every axis with one)"));
     Serial.println(F("  v[n]     step interval in us, lower is faster (bare v resets)"));
     Serial.println(F("  r[n]     ramp over n steps (r0 = none, bare r toggles)"));
     Serial.println(F("  p[n]     release the coils after n ms fleet idle (p0 = never)"));
     Serial.println(F("  l        read each endstop pin right now (diagnostic)"));
     Serial.println(F("  s        status | d debug | ? help"));
+}
+
+static void printEndstop(const char* axis, const Endstop& e) {
+    bool high = (digitalRead(e.getPin()) == HIGH);
+    Serial.println(String(axis) + " " + e.sideName() + " pin=" + e.getPin() +
+                   (e.getWiring() == Endstop::NORMALLY_CLOSED ? " NC" : " NO") +
+                   " reads=" + (high ? "HIGH" : "LOW") +
+                   " -> code says " + (e.readRaw() ? "TRIGGERED" : "clear"));
+}
+
+// Blocking: the console does not answer until every selected axis is done.
+// Axes without a switch on their homing side are skipped, so '*' then 'home'
+// homes everything that can be homed.
+static void homeSelected() {
+    bool any = false;
+
+    for (uint8_t i = 0; i < fleet.size(); i++) {
+        if (!isSelected(i) || !homingEndstop(AXES[i])) continue;
+
+        any = true;
+        HomingResult r = fleet.home(i, AXES[i].homing);
+        Serial.println(String(AXES[i].name) + " homing: " + homingResultName(r));
+    }
+
+    if (!any) Serial.println(String(selectionName()) + " has no endstop to home against");
 }
 
 static void jog(long steps) {
@@ -149,6 +182,13 @@ static uint8_t axisFromLetter(char c) {
 static void handleCommand(String cmd) {
     cmd.trim();
     if (cmd.length() == 0) return;
+
+    // Whole word, checked before the single-letter commands: 'h' is halt.
+    if (cmd.equalsIgnoreCase("home")) {
+        homeSelected();
+        printStatus();
+        return;
+    }
 
     char c = tolower(cmd.charAt(0));
     String rest = cmd.substring(1);
@@ -187,20 +227,13 @@ static void handleCommand(String cmd) {
             // Diagnostic only: the raw pin, and what the configured wiring mode
             // makes of it. Moves nothing.
             for (uint8_t i = 0; i < fleet.size(); i++) {
-                if (AXES[i].limit == NO_LIMIT) {
+                if (!hasEndstops(AXES[i])) {
                     Serial.println(String(AXES[i].name) + " no endstop");
                     continue;
                 }
 
-                int raw = digitalRead(AXES[i].limit);
-                // INPUT_PULLUP idles HIGH: an NC switch opens (HIGH) when hit,
-                // an NO switch closes to GND (LOW).
-                bool nc = (AXES[i].wiring == HomedStepper::NORMALLY_CLOSED);
-                bool triggered = nc ? (raw == HIGH) : (raw == LOW);
-                Serial.println(String(AXES[i].name) + " pin=" + AXES[i].limit +
-                               (nc ? " NC" : " NO") +
-                               " reads=" + (raw == HIGH ? "HIGH" : "LOW") +
-                               " -> code says " + (triggered ? "TRIGGERED" : "clear"));
+                if (AXES[i].min) printEndstop(AXES[i].name, *AXES[i].min);
+                if (AXES[i].max) printEndstop(AXES[i].name, *AXES[i].max);
             }
             return;
         case 'v': {
@@ -343,6 +376,13 @@ void setup() {
     fleet.setProfiles(RAMP_STEPS ? &ramp : nullptr);
     fleet.onReached(onAxisReached);
     fleet.begin();
+
+    if (HOME_ON_START) {
+        uint8_t keep = selected;
+        selected = ALL_AXES;
+        homeSelected();
+        selected = keep;
+    }
 
     printStatus();
     printHelp();

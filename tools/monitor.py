@@ -9,7 +9,8 @@ you press Enter. The sketch stays silent about input and only prints replies.
 
     python3 tools/monitor.py [port] [baud]
 
-Port defaults to the first /dev/cu.usbserial* (or /dev/ttyUSB* on Linux).
+Port defaults to the first /dev/cu.usbserial* (or /dev/ttyUSB* on Linux, or
+the first COM port on Windows).
 Ctrl+D or Ctrl+C quits. Close it before uploading - the port allows one owner.
 """
 import glob
@@ -17,7 +18,10 @@ import os
 import sys
 import threading
 
-import readline  # noqa: F401  - importing it is what enables line editing
+try:
+    import readline  # noqa: F401  - importing it is what enables line editing
+except ImportError:
+    pass  # Windows: the console's own input() already does editing and history
 
 BAUD = 115200
 REEXEC_FLAG = "MONITOR_REEXEC"
@@ -42,7 +46,10 @@ def ensure_pyserial():
     if os.environ.get(REEXEC_FLAG):
         sys.exit(f"pyserial not available under {sys.executable}")
 
-    pio_python = os.path.expanduser("~/.platformio/penv/bin/python")
+    if os.name == "nt":
+        pio_python = os.path.expanduser("~/.platformio/penv/Scripts/python.exe")
+    else:
+        pio_python = os.path.expanduser("~/.platformio/penv/bin/python")
     if not os.path.exists(pio_python):
         sys.exit(
             "pyserial not found. Either install it (pip install pyserial - note "
@@ -60,6 +67,14 @@ import serial  # noqa: E402  - only importable once the check above has passed
 
 
 def find_port():
+    if os.name == "nt":
+        from serial.tools import list_ports
+
+        # USB adapters carry a vendor id; skip built-in COM1 and Bluetooth ports
+        ports = sorted(p.device for p in list_ports.comports() if p.vid is not None)
+        if ports:
+            return ports[0]
+        sys.exit("no serial port found - pass one explicitly, e.g. COM3")
     for pattern in ("/dev/cu.usbserial*", "/dev/cu.usbmodem*", "/dev/ttyUSB*", "/dev/ttyACM*"):
         found = sorted(glob.glob(pattern))
         if found:

@@ -1,6 +1,6 @@
 #include <Arduino.h>
 #include <StepperManager.h>
-#include <A4988Stepper.h>
+#include <StepDirStepper.h>
 #include <Endstop.h>
 #include <Homing.h>
 #include <LinearRamp.h>
@@ -71,8 +71,8 @@ StepperManager fleet(AXIS_COUNT, EN_PIN);
 
 static Stepper* makeAxis(const AxisPins& axis) {
     // The EN pin is the fleet's, so the axes are built without one.
-    Stepper* stepper = new A4988Stepper(axis.step, axis.dir, STEPS_PER_REV,
-                                        A4988Stepper::NO_ENABLE_PIN, STEP_INTERVAL_US);
+    Stepper* stepper = new StepDirStepper(axis.step, axis.dir, STEPS_PER_REV,
+                                          StepDirStepper::NO_ENABLE_PIN, STEP_INTERVAL_US);
     if (stepper == nullptr) return nullptr;
 
     stepper->setEndstop(axis.min);   // nullptr is ignored

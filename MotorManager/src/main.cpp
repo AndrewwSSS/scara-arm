@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <CommandDispatcher.h>
 #include <StepperManager.h>
 #include <StepDirStepper.h>
 #include <Endstop.h>
@@ -122,18 +123,18 @@ static void printStatus() {
 }
 
 static void printHelp() {
-    Serial.println(F("commands:"));
+    Serial.println(F("commands (words separated by spaces):"));
     Serial.println(F("  x|y|z|a  select that axis for the commands below"));
     Serial.println(F("  *        select every axis at once"));
-    Serial.println(F("  f[n]     jog n steps forward  (DIR high), default 100"));
-    Serial.println(F("  b[n]     jog n steps backward (DIR low),  default 100"));
-    Serial.println(F("  g<n>     go to absolute step n (may be negative)"));
+    Serial.println(F("  f [n]    jog n steps forward  (DIR high), default 100"));
+    Serial.println(F("  b [n]    jog n steps backward (DIR low),  default 100"));
+    Serial.println(F("  g <n>    go to absolute step n (may be negative)"));
     Serial.println(F("  o        re-declare the current position as step 0"));
     Serial.println(F("  h        halt: cancel the move, hold here"));
     Serial.println(F("  home     home against the endstop (blocking; '*' = every axis with one)"));
-    Serial.println(F("  v[n]     step interval in us, lower is faster (bare v resets)"));
-    Serial.println(F("  r[n]     ramp over n steps (r0 = none, bare r toggles)"));
-    Serial.println(F("  p[n]     release the coils after n ms fleet idle (p0 = never)"));
+    Serial.println(F("  v [n]    step interval in us, lower is faster (bare v resets)"));
+    Serial.println(F("  r [n]    ramp over n steps (r 0 = none, bare r toggles)"));
+    Serial.println(F("  p [n]    release the coils after n ms fleet idle (p 0 = never)"));
     Serial.println(F("  l        read each endstop pin right now (diagnostic)"));
     Serial.println(F("  s        status | d debug | ? help"));
 }
@@ -174,177 +175,179 @@ static void jog(long steps) {
 }
 static uint8_t axisFromLetter(char c) {
     for (uint8_t i = 0; i < AXIS_COUNT; i++) {
-        if (tolower(AXES[i].name[0]) == c) return i;
+        if (tolower(AXES[i].name[0]) == tolower(c)) return i;
     }
     return ALL_AXES;
 }
 
-static void handleCommand(String cmd) {
-    cmd.trim();
-    if (cmd.length() == 0) return;
+// --- Console commands -------------------------------------------------------
+//
+// Each one is registered in registerCommands() with the arguments it takes;
+// CommandDispatcher checks them before the handler runs, so a handler never
+// sees a missing number or a word where a number belongs.
 
-    // Whole word, checked before the single-letter commands: 'h' is halt.
-    if (cmd.equalsIgnoreCase("home")) {
-        homeSelected();
-        printStatus();
-        return;
+CommandDispatcher<20> commands(Serial);
+LineReader<24>        console(Serial);
+
+static void cmdHome(const CommandArgs&) {
+    homeSelected();
+    printStatus();
+}
+
+static void cmdForward(const CommandArgs& args) {
+    long n = args.getLong(0);
+    jog(n > 0 ? n : DEFAULT_JOG_STEPS);
+}
+
+static void cmdBackward(const CommandArgs& args) {
+    long n = args.getLong(0);
+    jog(-(n > 0 ? n : DEFAULT_JOG_STEPS));
+}
+
+static void cmdGo(const CommandArgs& args) {
+    long n = args.getLong(0);
+    for (uint8_t i = 0; i < fleet.size(); i++) {
+        if (isSelected(i)) fleet.moveToStep(i, n);
+    }
+    moveStartedAt = millis();
+    Serial.println(String("-> ") + selectionName() + " absolute step " + n);
+}
+
+static void cmdOrigin(const CommandArgs&) {
+    for (uint8_t i = 0; i < fleet.size(); i++) {
+        if (isSelected(i)) fleet.setOrigin(i);
+    }
+    Serial.println(String(selectionName()) + " origin reset, step 0 is here");
+}
+
+static void cmdHalt(const CommandArgs&) {
+    for (uint8_t i = 0; i < fleet.size(); i++) {
+        if (isSelected(i)) fleet.stopHere(i);
+    }
+    Serial.println(String(selectionName()) + " halted");
+}
+
+// Diagnostic only: the raw pin, and what the configured wiring mode makes of
+// it. Moves nothing.
+static void cmdEndstops(const CommandArgs&) {
+    for (uint8_t i = 0; i < fleet.size(); i++) {
+        if (!hasEndstops(AXES[i])) {
+            Serial.println(String(AXES[i].name) + " no endstop");
+            continue;
+        }
+
+        if (AXES[i].min) printEndstop(AXES[i].name, *AXES[i].min);
+        if (AXES[i].max) printEndstop(AXES[i].name, *AXES[i].max);
+    }
+}
+
+// Takes effect on the next pulse, mid-move included - there is no ramp, so a
+// big jump under load is where a stepper loses steps.
+static void cmdInterval(const CommandArgs& args) {
+    long n = args.getLong(0);
+    unsigned long us = (n > 0) ? (unsigned long)n : STEP_INTERVAL_US;
+
+    for (uint8_t i = 0; i < fleet.size(); i++) {
+        if (isSelected(i)) fleet.setStepInterval(i, us);
     }
 
-    char c = tolower(cmd.charAt(0));
-    String rest = cmd.substring(1);
-    rest.trim();
-    // toInt() yields 0 for an empty or non-numeric tail, which is how a bare
-    // 'f' / 'b' falls back to the default jog size.
-    long n = rest.toInt();
+    Serial.println(String("-> ") + selectionName() + " interval " + us + "us");
+}
 
-    switch (c) {
-        case 'f':
-            jog(n > 0 ? n : DEFAULT_JOG_STEPS);
-            return;
-        case 'b':
-            jog(-(n > 0 ? n : DEFAULT_JOG_STEPS));
-            return;
-        case 'g':
-            for (uint8_t i = 0; i < fleet.size(); i++) {
-                if (isSelected(i)) fleet.moveToStep(i, n);
-            }
-            moveStartedAt = millis();
-            Serial.println(String("-> ") + selectionName() + " absolute step " + n);
-            return;
-        case 'o':
-            for (uint8_t i = 0; i < fleet.size(); i++) {
-                if (isSelected(i)) fleet.setOrigin(i);
-            }
-            Serial.println(String(selectionName()) + " origin reset, step 0 is here");
-            return;
-        case 'h':
-            for (uint8_t i = 0; i < fleet.size(); i++) {
-                if (isSelected(i)) fleet.stopHere(i);
-            }
-            Serial.println(String(selectionName()) + " halted");
-            return;
-        case 'l':
-            // Diagnostic only: the raw pin, and what the configured wiring mode
-            // makes of it. Moves nothing.
-            for (uint8_t i = 0; i < fleet.size(); i++) {
-                if (!hasEndstops(AXES[i])) {
-                    Serial.println(String(AXES[i].name) + " no endstop");
-                    continue;
-                }
+// The ramp length is the shared profile's, so a number here moves every axis
+// using it; what the selection controls is whether the axis is on the profile
+// at all. Bare 'r' toggles, 'r 0' turns it off, 'r <n>' sets and turns it on.
+static void cmdRamp(const CommandArgs& args) {
+    long n = args.getLong(0);
+    if (n > 0) ramp.setRampSteps((uint16_t)n);
 
-                if (AXES[i].min) printEndstop(AXES[i].name, *AXES[i].min);
-                if (AXES[i].max) printEndstop(AXES[i].name, *AXES[i].max);
-            }
-            return;
-        case 'v': {
-            // Takes effect on the next pulse, mid-move included - there is no
-            // ramp, so a big jump under load is where a stepper loses steps.
-            unsigned long us = (n > 0) ? (unsigned long)n : STEP_INTERVAL_US;
+    bool off = args.has(0) && n == 0;
+    for (uint8_t i = 0; i < fleet.size(); i++) {
+        if (!isSelected(i)) continue;
 
-            for (uint8_t i = 0; i < fleet.size(); i++) {
-                if (isSelected(i)) fleet.setStepInterval(i, us);
-            }
-
-            Serial.println(String("-> ") + selectionName() + " interval " + us + "us");
-            return;
-        }
-        case 'r': {
-            // The ramp length is the shared profile's, so a number here moves
-            // every axis using it; what the selection controls is whether the
-            // axis is on the profile at all.
-            if (n > 0) ramp.setRampSteps((uint16_t)n);
-
-            bool off = (n == 0 && rest.length() > 0);
-            for (uint8_t i = 0; i < fleet.size(); i++) {
-                if (!isSelected(i)) continue;
-
-                bool on = off ? false
-                              : (rest.length() ? true : (fleet.getProfile(i) == nullptr));
-                fleet.setProfile(i, on ? &ramp : nullptr);
-            }
-
-            printStatus();
-            return;
-        }
-        case 'p': {
-            // One EN line for the shield, so this is a fleet-wide setting and
-            // ignores the axis selection. A bare 'p' toggles, which is the quick
-            // way to feel the difference on the shaft; 'p<n>' sets it outright.
-            unsigned long idle = (n > 0) ? (unsigned long)n : 0;
-            if (rest.length() == 0) {
-                idle = fleet.getIdleRelease() ? 0 : IDLE_RELEASE_MS;
-            }
-
-            fleet.setIdleRelease(idle);
-            // Turning it off does not re-energise on its own, and a released
-            // fleet would report positions it is not holding.
-            if (idle == 0) fleet.enable();
-
-            printStatus();
-            return;
-        }
-        case 'd':
-            for (uint8_t i = 0; i < fleet.size(); i++) {
-                if (isSelected(i)) fleet.toggleDebug(i);
-            }
-            printStatus();
-            return;
-        case 's':
-            printStatus();
-            return;
-        case '*':
-            selected = ALL_AXES;
-            Serial.println(F("selected: every axis"));
-            return;
+        bool on = off ? false
+                      : (args.has(0) ? true : (fleet.getProfile(i) == nullptr));
+        fleet.setProfile(i, on ? &ramp : nullptr);
     }
 
-    uint8_t axis = axisFromLetter(c);
-    if (axis != ALL_AXES) {
-        selected = axis;
-        Serial.println(String("selected: ") + AXES[axis].name);
-        return;
+    printStatus();
+}
+
+// One EN line for the shield, so this is a fleet-wide setting and ignores the
+// axis selection. A bare 'p' toggles, which is the quick way to feel the
+// difference on the shaft; 'p <n>' sets it outright.
+static void cmdIdleRelease(const CommandArgs& args) {
+    long n = args.getLong(0);
+    unsigned long idle = (n > 0) ? (unsigned long)n : 0;
+    if (!args.has(0)) {
+        idle = fleet.getIdleRelease() ? 0 : IDLE_RELEASE_MS;
     }
 
+    fleet.setIdleRelease(idle);
+    // Turning it off does not re-energise on its own, and a released fleet
+    // would report positions it is not holding.
+    if (idle == 0) fleet.enable();
+
+    printStatus();
+}
+
+static void cmdDebug(const CommandArgs&) {
+    for (uint8_t i = 0; i < fleet.size(); i++) {
+        if (isSelected(i)) fleet.toggleDebug(i);
+    }
+    printStatus();
+}
+
+static void cmdStatus(const CommandArgs&) {
+    printStatus();
+}
+
+static void cmdHelp(const CommandArgs&) {
     printHelp();
 }
 
-static char    inputLine[24];
-static uint8_t inputLen = 0;
-static bool    inEscape = false;
+static void cmdSelectAll(const CommandArgs&) {
+    selected = ALL_AXES;
+    Serial.println(F("selected: every axis"));
+}
 
-static void readSerial() {
-    while (Serial.available()) {
-        char c = Serial.read();
+// Registered once per axis letter; the name typed says which.
+static void cmdSelectAxis(const CommandArgs& args) {
+    selected = axisFromLetter(args.name()[0]);
+    Serial.println(String("selected: ") + AXES[selected].name);
+}
 
-        if (inEscape) {
-            if (c == '[' || c == 'O' || (c >= '0' && c <= '?')) continue;
-            inEscape = false;
-            continue;
-        }
-        if (c == 0x1B) {
-            inEscape = true;
-            continue;
-        }
+static void onUnknownCommand(const char* name) {
+    Serial.print(F("unknown command: "));
+    Serial.println(name);
+    printHelp();
+}
 
-        if (c == '\r' || c == '\n') {
-            if (inputLen == 0) continue;   // blank line, or the LF of a CRLF pair
-            inputLine[inputLen] = '\0';
-            handleCommand(String(inputLine));
-            inputLen = 0;
-            continue;
-        }
+static void registerCommands() {
+    commands.add(F("home"), cmdHome);
+    commands.add(F("f"), F("[n]"), cmdForward);
+    commands.add(F("b"), F("[n]"), cmdBackward);
+    commands.add(F("g"), F("n"), cmdGo);
+    commands.add(F("o"), cmdOrigin);
+    commands.add(F("h"), cmdHalt);
+    commands.add(F("l"), cmdEndstops);
+    commands.add(F("v"), F("[n]"), cmdInterval);
+    commands.add(F("r"), F("[n]"), cmdRamp);
+    commands.add(F("p"), F("[n]"), cmdIdleRelease);
+    commands.add(F("d"), cmdDebug);
+    commands.add(F("s"), cmdStatus);
+    commands.add(F("?"), cmdHelp);
+    commands.add(F("help"), cmdHelp);
+    commands.add(F("*"), cmdSelectAll);
 
-        if (c == 0x08 || c == 0x7F) {      // stray backspace from a raw terminal
-            if (inputLen > 0) inputLen--;
-            continue;
-        }
+    // One entry per axis letter. F() strings have to be literal, so the
+    // letters are spelled out here; keep them in step with AXES.
+    commands.add(F("x"), cmdSelectAxis);
+    commands.add(F("y"), cmdSelectAxis);
+    commands.add(F("z"), cmdSelectAxis);
+    commands.add(F("a"), cmdSelectAxis);
 
-        if (c < 0x20) continue;            // swallow other control bytes
-
-        if (inputLen < sizeof(inputLine) - 1) {
-            inputLine[inputLen++] = c;
-        }
-    }
+    commands.onUnknown(onUnknownCommand);
 }
 
 static void onAxisReached(uint8_t id) {
@@ -372,6 +375,8 @@ void setup() {
     Serial.println(String("steps/rev=") + STEPS_PER_REV +
                    " (" + FULL_STEPS_PER_REV + " full x 1/" + MICROSTEPS + ")");
 
+    registerCommands();
+
     fleet.setIdleRelease(IDLE_RELEASE_MS);
     fleet.setProfiles(RAMP_STEPS ? &ramp : nullptr);
     fleet.onReached(onAxisReached);
@@ -389,9 +394,6 @@ void setup() {
 }
 
 void loop() {
-    // Emits at most one step pulse per axis per call and returns immediately,
-    // so the serial console stays responsive while the motors are turning.
     fleet.update();
-
-    readSerial();
+    console.poll(commands);
 }

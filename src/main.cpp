@@ -202,7 +202,7 @@ static void printStatus() {
     Serial.println(gripper.getAngle(GRIPPER));
 
     unsigned long idle = fleet.getIdleRelease();
-    Serial.print(F("EN D"));
+    Serial.print(F("EN " PIN_PREFIX));
     Serial.print(fleet.getEnablePin());
     Serial.print(fleet.isPowered() ? F(" energised") : F(" released"));
     Serial.print(F(", release="));
@@ -657,11 +657,11 @@ void setup() {
 
         Serial.print(F("socket="));
         Serial.print(AXES[i].name);
-        Serial.print(F(" STEP=D"));
+        Serial.print(F(" STEP=" PIN_PREFIX));
         Serial.print(AXES[i].step);
-        Serial.print(F(" DIR=D"));
+        Serial.print(F(" DIR=" PIN_PREFIX));
         Serial.print(AXES[i].dir);
-        Serial.print(F(" EN=D"));
+        Serial.print(F(" EN=" PIN_PREFIX));
         Serial.println(EN_PIN);
     }
 

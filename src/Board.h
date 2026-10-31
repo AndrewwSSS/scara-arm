@@ -4,7 +4,12 @@
 // The pins, one block per board. Everything else in the sketch is shared, so a
 // new board is a new block here and nothing more.
 
+// PIN_PREFIX is how the board's own pinout names a pin, for messages: "D2" on
+// the Uno, "GPIO25" on the ESP32.
+
 #if defined(ESP32)
+
+#define PIN_PREFIX "GPIO"
 
 // --- ESP32-WROOM-32 DevKit, driving the CNC Shield through a level shifter ---
 //
@@ -34,6 +39,8 @@ static constexpr uint8_t EN_PIN = 4;   // shared enable, active LOW
 static constexpr uint8_t GRIPPER_PIN = 21;
 
 #else
+
+#define PIN_PREFIX "D"
 
 // --- Arduino Uno with the CNC Shield v3 --------------------------------------
 //

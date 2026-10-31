@@ -6,6 +6,8 @@
 #include <Endstop.h>
 #include <Homing.h>
 #include <LinearRamp.h>
+#include <ServoManager.h>
+#include <ServoMotor.h>
 #include "Board.h"
 
 // Limit switches, one per pin, wired COM -> GND and NC -> pin. Declared here
@@ -60,6 +62,12 @@ LinearRamp ramp(RAMP_START_US, RAMP_STEPS);
 // Every socket shares the EN pin, so the fleet owns it rather than the axes:
 // it stays energised until every axis has gone quiet.
 StepperManager fleet(AXIS_COUNT, EN_PIN);
+
+// The gripper is driven to this angle at start-up, before any command.
+static constexpr uint16_t GRIPPER_START_ANGLE = 90;
+
+ServoManager gripper(1);
+static constexpr uint8_t GRIPPER = 0;   // its id in the gripper fleet
 
 // --- Settings kept across power cycles ---------------------------------------
 //
@@ -190,6 +198,9 @@ static void printStatus() {
         Serial.println();
     }
 
+    Serial.print(F("gripper angle="));
+    Serial.println(gripper.getAngle(GRIPPER));
+
     unsigned long idle = fleet.getIdleRelease();
     Serial.print(F("EN D"));
     Serial.print(fleet.getEnablePin());
@@ -214,6 +225,7 @@ static void printHelp() {
     Serial.println(F("  f [n]    jog n steps forward  (DIR high), default 100"));
     Serial.println(F("  b [n]    jog n steps backward (DIR low),  default 100"));
     Serial.println(F("  g <n>    go to absolute step n (may be negative)"));
+    Serial.println(F("  grip [n] turn the gripper to n degrees, 0-180 (bare grip: where it is)"));
     Serial.println(F("  o        re-declare the current position as step 0"));
     Serial.println(F("  h        halt: cancel the move, hold here"));
     Serial.println(F("  home     home against the endstop (blocking; '*' = every axis with one)"));
@@ -331,7 +343,7 @@ static void   paintFreeRam()  {}
 // CommandDispatcher checks them before the handler runs, so a handler never
 // sees a missing number or a word where a number belongs.
 
-CommandDispatcher<26> commands(Serial);
+CommandDispatcher<28> commands(Serial);
 LineReader<24>        console(Serial);
 
 static void cmdHome(const CommandArgs&) {
@@ -367,6 +379,23 @@ static void cmdOrigin(const CommandArgs&) {
     }
     Serial.print(selectionName());
     Serial.println(F(" origin reset, step 0 is here"));
+}
+
+// The gripper is not an axis, so the selection does not apply to it.
+static void cmdGrip(const CommandArgs& args) {
+    if (args.has(0)) {
+        long n = args.getLong(0);
+        if (n < 0) n = 0;
+        if (n > 180) n = 180;
+        gripper.setAngle(GRIPPER, (int)n);
+        Serial.print(F("-> gripper to "));
+        Serial.print(n);
+        Serial.println(F(" deg"));
+    } else {
+        Serial.print(F("gripper at "));
+        Serial.print(gripper.getAngle(GRIPPER));
+        Serial.println(F(" deg"));
+    }
 }
 
 static void cmdHalt(const CommandArgs&) {
@@ -573,6 +602,7 @@ static void registerCommands() {
     commands.add(F("f"), F("[n]"), cmdForward);
     commands.add(F("b"), F("[n]"), cmdBackward);
     commands.add(F("g"), F("n"), cmdGo);
+    commands.add(F("grip"), F("[n]"), cmdGrip);
     commands.add(F("o"), cmdOrigin);
     commands.add(F("h"), cmdHalt);
     commands.add(F("l"), cmdEndstops);
@@ -650,6 +680,12 @@ void setup() {
     fleet.onReached(onAxisReached);
     fleet.begin();
 
+    // Blocks for a second while the servo reaches its start angle.
+    if (gripper.addMotor(new ServoMotor(GRIPPER_PIN, GRIPPER_START_ANGLE)) == ServoManager::INVALID_ID) {
+        Serial.println(F("gripper not registered, out of memory"));
+    }
+    gripper.begin();
+
     if (HOME_ON_START) {
         uint8_t keep = selected;
         selected = ALL_AXES;
@@ -663,5 +699,6 @@ void setup() {
 
 void loop() {
     fleet.update();
+    gripper.update();
     console.poll(commands);
 }

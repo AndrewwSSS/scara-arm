@@ -15,6 +15,7 @@
 //    Z    |  32  | 13  |       |
 //    A    |  18  | 19  |       |
 //
+//  Gripper servo: 21
 // Clear of the boot strapping pins (0, 2, 5, 12, 15), the flash (6-11), the
 // USB serial (1, 3) and GPIO 14, which pulses during boot. The shared EN needs
 // a pull-up to the drivers' logic supply so they stay off while the ESP32
@@ -29,6 +30,9 @@ static constexpr uint8_t X_MAX_LIMIT = 34;
 
 static constexpr uint8_t EN_PIN = 4;   // shared enable, active LOW
 
+// Signal only: the servo gets its own 5-6 V supply with a common GND.
+static constexpr uint8_t GRIPPER_PIN = 21;
+
 #else
 
 // --- Arduino Uno with the CNC Shield v3 --------------------------------------
@@ -40,7 +44,8 @@ static constexpr uint8_t EN_PIN = 4;   // shared enable, active LOW
 //    Z    |  D4  | D7  |     D11      | hardwired
 //    A    |  D12 | D13 |    none      |
 //
-// X's switch is wired to A4 rather than the shield's limit header.
+// X's switch is wired to A4 rather than the shield's limit header, and the
+// gripper servo to D11, the Z limit header.
 
 static constexpr uint8_t X_STEP =  2, X_DIR =  5;
 static constexpr uint8_t Y_STEP =  3, Y_DIR =  6;
@@ -50,5 +55,9 @@ static constexpr uint8_t A_STEP = 12, A_DIR = 13;
 static constexpr uint8_t X_MAX_LIMIT = A4;
 
 static constexpr uint8_t EN_PIN = 8;   // shared enable, active LOW
+
+// The Z limit header's signal pin, free because Z has no switch. Signal only:
+// the servo gets its own 5-6 V supply with a common GND.
+static constexpr uint8_t GRIPPER_PIN = 11;
 
 #endif

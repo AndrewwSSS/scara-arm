@@ -7,6 +7,15 @@
 // PIN_PREFIX is how the board's own pinout names a pin, for messages: "D2" on
 // the Uno, "GPIO25" on the ESP32.
 
+// The driver on each socket. Step+dir drivers differ only in timing: the STEP
+// pulse width, set per axis from this, and the DIR setup before a reversal,
+// which MotorControl gives every driver at 5 us (MC_DIR_SETUP_US) - what the
+// slow ones need, and negligible for the rest since it is paid per reversal.
+enum class Driver : uint8_t {
+    A4988,    // and DRV8825: 2 us pulses
+    TB6600    // and DM542, opto-isolated: 5 us pulses
+};
+
 #if defined(ESP32)
 
 #define PIN_PREFIX "GPIO"
@@ -30,6 +39,11 @@ static constexpr uint8_t X_STEP = 25, X_DIR = 26;
 static constexpr uint8_t Y_STEP = 27, Y_DIR = 33;
 static constexpr uint8_t Z_STEP = 32, Z_DIR = 13;
 static constexpr uint8_t A_STEP = 18, A_DIR = 19;
+
+static constexpr Driver X_DRIVER = Driver::A4988;
+static constexpr Driver Y_DRIVER = Driver::A4988;
+static constexpr Driver Z_DRIVER = Driver::A4988;
+static constexpr Driver A_DRIVER = Driver::A4988;
 
 static constexpr uint8_t X_MAX_LIMIT = 34;
 
@@ -58,6 +72,12 @@ static constexpr uint8_t X_STEP =  2, X_DIR =  5;
 static constexpr uint8_t Y_STEP =  3, Y_DIR =  6;
 static constexpr uint8_t Z_STEP =  4, Z_DIR =  7;
 static constexpr uint8_t A_STEP = 12, A_DIR = 13;
+
+// The shield's sockets take A4988 or DRV8825 modules only.
+static constexpr Driver X_DRIVER = Driver::A4988;
+static constexpr Driver Y_DRIVER = Driver::A4988;
+static constexpr Driver Z_DRIVER = Driver::A4988;
+static constexpr Driver A_DRIVER = Driver::A4988;
 
 static constexpr uint8_t X_MAX_LIMIT = A4;
 

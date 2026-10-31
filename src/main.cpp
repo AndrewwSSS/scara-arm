@@ -21,6 +21,7 @@ struct AxisPins {
     const char*  name;
     uint8_t      step;
     uint8_t      dir;
+    Driver       driver;
     Endstop*     min;
     Endstop*     max;
     HomingConfig homing;
@@ -28,11 +29,11 @@ struct AxisPins {
 
 static constexpr HomingConfig NO_HOMING = { Endstop::MIN, 0, 0, 0, 0 };
 
-//                                  name STEP    DIR    min      max      homing: towards rest maxSteps backoff slowUs
-static constexpr AxisPins CNC_X = { "X", X_STEP, X_DIR, nullptr, &xMax,   { Endstop::MAX, 0, 103500, 40, 4000 } };
-static constexpr AxisPins CNC_Y = { "Y", Y_STEP, Y_DIR, nullptr, nullptr, NO_HOMING };
-static constexpr AxisPins CNC_Z = { "Z", Z_STEP, Z_DIR, nullptr, nullptr, NO_HOMING };
-static constexpr AxisPins CNC_A = { "A", A_STEP, A_DIR, nullptr, nullptr, NO_HOMING };
+//                                  name STEP    DIR    driver    min      max      homing: towards rest maxSteps backoff slowUs
+static constexpr AxisPins CNC_X = { "X", X_STEP, X_DIR, X_DRIVER, nullptr, &xMax,   { Endstop::MAX, 0, 103500, 40, 4000 } };
+static constexpr AxisPins CNC_Y = { "Y", Y_STEP, Y_DIR, Y_DRIVER, nullptr, nullptr, NO_HOMING };
+static constexpr AxisPins CNC_Z = { "Z", Z_STEP, Z_DIR, Z_DRIVER, nullptr, nullptr, NO_HOMING };
+static constexpr AxisPins CNC_A = { "A", A_STEP, A_DIR, A_DRIVER, nullptr, nullptr, NO_HOMING };
 
 static const AxisPins AXES[] = { CNC_Z, CNC_Y, CNC_X, CNC_A };
 static constexpr uint8_t AXIS_COUNT = sizeof(AXES) / sizeof(AXES[0]);
@@ -128,10 +129,21 @@ static void applySettings() {
     for (uint8_t i = 0; i < fleet.size(); i++) applyAxis(i);
 }
 
+// Minimum STEP high time, per the driver's datasheet.
+static uint8_t pulseUs(Driver driver) {
+    return (driver == Driver::TB6600) ? StepDirStepper::TB6600_PULSE_US
+                                      : StepDirStepper::A4988_PULSE_US;
+}
+
+static const __FlashStringHelper* driverName(Driver driver) {
+    return (driver == Driver::TB6600) ? F("TB6600") : F("A4988");
+}
+
 static Stepper* makeAxis(const AxisPins& axis) {
     // The EN pin is the fleet's, so the axes are built without one.
     Stepper* stepper = new StepDirStepper(axis.step, axis.dir, STEPS_PER_REV,
-                                          StepDirStepper::NO_ENABLE_PIN, STEP_INTERVAL_US);
+                                          StepDirStepper::NO_ENABLE_PIN, STEP_INTERVAL_US,
+                                          pulseUs(axis.driver));
     if (stepper == nullptr) return nullptr;
 
     stepper->setEndstop(axis.min);   // nullptr is ignored
@@ -662,7 +674,12 @@ void setup() {
         Serial.print(F(" DIR=" PIN_PREFIX));
         Serial.print(AXES[i].dir);
         Serial.print(F(" EN=" PIN_PREFIX));
-        Serial.println(EN_PIN);
+        Serial.print(EN_PIN);
+        Serial.print(F(" driver="));
+        Serial.print(driverName(AXES[i].driver));
+        Serial.print(F(" pulse="));
+        Serial.print(pulseUs(AXES[i].driver));
+        Serial.println(F("us"));
     }
 
     Serial.print(F("steps/rev="));

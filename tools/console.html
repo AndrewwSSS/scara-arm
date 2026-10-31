@@ -31,6 +31,15 @@
     --button: #eeeeea;
     --button-hover: #e2e2dc;
     --log-bg: #fbfbf9;
+
+    /* Button colours: fill, border, text */
+    --gray-bg: #e4e4e0;   --gray-bd: #b9b9b2;   --gray-fg: #2b2b28;
+    --red-bg: #fbe3e1;    --red-bd: #e3958d;    --red-fg: #8a1f16;
+    --orange-bg: #fde9d9; --orange-bd: #eca777; --orange-fg: #86400f;
+    --yellow-bg: #fbf1c7; --yellow-bd: #dcc261; --yellow-fg: #6b5400;
+    --green-bg: #e0f2e3;  --green-bd: #8ac496;  --green-fg: #1d5e2c;
+    --blue-bg: #e1ecfb;   --blue-bd: #8fb1ea;   --blue-fg: #1c4a96;
+    --purple-bg: #ece6fb; --purple-bd: #ae9be6; --purple-fg: #4d2f99;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -47,6 +56,14 @@
       --button: #2a2a28;
       --button-hover: #353532;
       --log-bg: #191918;
+
+      --gray-bg: #353532;   --gray-bd: #55554f;   --gray-fg: #e4e4df;
+      --red-bg: #4a2320;    --red-bd: #8c3d35;    --red-fg: #ffc9c3;
+      --orange-bg: #4a2f1c; --orange-bd: #8d5730;  --orange-fg: #ffd5b5;
+      --yellow-bg: #433a17; --yellow-bd: #7f6c26; --yellow-fg: #f6e49a;
+      --green-bg: #1f3d26;  --green-bd: #3f7a4c;  --green-fg: #bfe9c8;
+      --blue-bg: #1e3150;   --blue-bd: #3d5f96;   --blue-fg: #c6dafc;
+      --purple-bg: #322a4d; --purple-bd: #5f4e95; --purple-fg: #ddd2fd;
     }
   }
 
@@ -154,6 +171,31 @@
   .buttons { display: flex; flex-wrap: wrap; gap: 6px; }
   .buttons button { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .editing .buttons button.cmd { border-style: dashed; }
+  .buttons button.cmd[data-color] {
+    background: var(--c-bg);
+    border-color: var(--c-bd);
+    color: var(--c-fg);
+  }
+  .buttons button.cmd[data-color]:hover { filter: brightness(.95); }
+  [data-color="gray"]   { --c-bg: var(--gray-bg);   --c-bd: var(--gray-bd);   --c-fg: var(--gray-fg); }
+  [data-color="red"]    { --c-bg: var(--red-bg);    --c-bd: var(--red-bd);    --c-fg: var(--red-fg); }
+  [data-color="orange"] { --c-bg: var(--orange-bg); --c-bd: var(--orange-bd); --c-fg: var(--orange-fg); }
+  [data-color="yellow"] { --c-bg: var(--yellow-bg); --c-bd: var(--yellow-bd); --c-fg: var(--yellow-fg); }
+  [data-color="green"]  { --c-bg: var(--green-bg);  --c-bd: var(--green-bd);  --c-fg: var(--green-fg); }
+  [data-color="blue"]   { --c-bg: var(--blue-bg);   --c-bd: var(--blue-bd);   --c-fg: var(--blue-fg); }
+  [data-color="purple"] { --c-bg: var(--purple-bg); --c-bd: var(--purple-bd); --c-fg: var(--purple-fg); }
+
+  .swatches { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .swatches button {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--c-bg, var(--button));
+    border: 2px solid var(--c-bd, var(--border));
+    color: var(--muted);
+  }
+  .swatches button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 2px; }
   .edit-only { display: none; }
   .editing .edit-only { display: inline-block; }
   .panel-tools { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
@@ -168,7 +210,7 @@
     width: min(380px, calc(100vw - 32px));
   }
   dialog::backdrop { background: rgb(0 0 0 / .35); }
-  dialog label { display: block; margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+  dialog label, dialog .field { display: block; margin: 0 0 10px; color: var(--muted); font-size: 12px; }
   dialog input { display: block; width: 100%; margin-top: 4px; }
   dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
   dialog .row .left { margin-right: auto; }
@@ -232,6 +274,9 @@
     <label>Command
       <input id="dlgCommand" type="text" placeholder="e.g. f 3200, or g {n} to ask for n">
     </label>
+    <div class="field">Color
+      <div id="dlgColors" class="swatches"></div>
+    </div>
     <div class="row">
       <button id="dlgDelete" type="button" class="left">Delete</button>
       <button type="button" data-close>Cancel</button>
@@ -298,7 +343,7 @@ const DEFAULT_GROUPS = [
   { name: "Move", buttons: [
     { label: "f", command: "f" }, { label: "b", command: "b" },
     { label: "f 3200", command: "f 3200" }, { label: "b 3200", command: "b 3200" },
-    { label: "go to…", command: "g {n}" }, { label: "halt", command: "h" },
+    { label: "go to…", command: "g {n}" }, { label: "halt", command: "h", color: "red" },
     { label: "home", command: "home" }, { label: "origin", command: "o" } ] },
   { name: "Tuning", buttons: [
     { label: "interval…", command: "v {n}" }, { label: "ramp…", command: "r {n}" },
@@ -368,6 +413,7 @@ function renderGroups() {
     group.buttons.forEach((b, bi) => {
       const el = document.createElement("button");
       el.className = "cmd";
+      if (b.color) el.dataset.color = b.color;
       el.textContent = b.label;
       el.title = b.command;
       el.addEventListener("click", () => editing ? openButtonDialog(gi, bi) : pressButton(b));
@@ -418,13 +464,35 @@ const dialog = document.getElementById("buttonDialog");
 const dlgLabel = document.getElementById("dlgLabel");
 const dlgCommand = document.getElementById("dlgCommand");
 const dlgDelete = document.getElementById("dlgDelete");
+const dlgColors = document.getElementById("dlgColors");
 let dialogTarget = null;   // { gi, bi }; bi -1 = a new button
+let dialogColor = "";      // "" = the plain button look
+
+const COLORS = ["", "gray", "red", "orange", "yellow", "green", "blue", "purple"];
+
+for (const c of COLORS) {
+  const sw = document.createElement("button");
+  sw.type = "button";
+  sw.title = c || "none";
+  sw.setAttribute("aria-label", c || "no color");
+  if (c) sw.dataset.color = c; else sw.textContent = "∅";
+  sw.addEventListener("click", () => pickColor(c));
+  dlgColors.append(sw);
+}
+
+function pickColor(c) {
+  dialogColor = c;
+  for (const sw of dlgColors.children) {
+    sw.setAttribute("aria-pressed", String((sw.dataset.color || "") === c));
+  }
+}
 
 function openButtonDialog(gi, bi) {
   dialogTarget = { gi, bi };
   const b = bi >= 0 ? groups[gi].buttons[bi] : { label: "", command: "" };
   dlgLabel.value = b.label;
   dlgCommand.value = b.command;
+  pickColor(COLORS.includes(b.color) ? b.color || "" : "");
   dlgDelete.style.visibility = bi >= 0 ? "visible" : "hidden";
   dialog.showModal();
   dlgLabel.focus();
@@ -436,8 +504,10 @@ dialog.addEventListener("close", () => {
   if (!command) return;
   const label = dlgLabel.value.trim() || command;
   const { gi, bi } = dialogTarget;
-  if (bi >= 0) groups[gi].buttons[bi] = { label, command };
-  else groups[gi].buttons.push({ label, command });
+  const b = { label, command };
+  if (dialogColor) b.color = dialogColor;
+  if (bi >= 0) groups[gi].buttons[bi] = b;
+  else groups[gi].buttons.push(b);
   changed();
 });
 
@@ -486,7 +556,8 @@ importFile.addEventListener("change", async () => {
     const data = JSON.parse(await file.text());
     const valid = Array.isArray(data) && data.every(g =>
       typeof g.name === "string" && Array.isArray(g.buttons) &&
-      g.buttons.every(b => typeof b.label === "string" && typeof b.command === "string"));
+      g.buttons.every(b => typeof b.label === "string" && typeof b.command === "string" &&
+                           (b.color === undefined || COLORS.includes(b.color))));
     if (!valid) throw new Error("not a button file");
     groups = data;
     changed();

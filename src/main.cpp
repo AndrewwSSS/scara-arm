@@ -129,15 +129,10 @@ static void applySettings() {
     for (uint8_t i = 0; i < fleet.size(); i++) applyAxis(i);
 }
 
-// Minimum STEP high time, per the driver's datasheet.
-static uint8_t pulseUs(Driver driver) {
-    return (driver == Driver::TB6600) ? StepDirStepper::TB6600_PULSE_US
-                                      : StepDirStepper::A4988_PULSE_US;
-}
-
-static const __FlashStringHelper* driverName(Driver driver) {
-    return (driver == Driver::TB6600) ? F("TB6600") : F("A4988");
-}
+static_assert(pulseUs(Driver::A4988) == StepDirStepper::A4988_PULSE_US,
+              "Driver.h and MotorControl disagree on the A4988 pulse");
+static_assert(pulseUs(Driver::TB6600) == StepDirStepper::TB6600_PULSE_US,
+              "Driver.h and MotorControl disagree on the TB6600 pulse");
 
 static Stepper* makeAxis(const AxisPins& axis) {
     // The EN pin is the fleet's, so the axes are built without one.

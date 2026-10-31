@@ -6,20 +6,11 @@
 #include <Endstop.h>
 #include <Homing.h>
 #include <LinearRamp.h>
-
-
-// --- Arduino CNC Shield v3 pin map ----------------------------------------
-//
-//  Socket | STEP | DIR | Limit header | Notes
-//  -------+------+-----+--------------+-------------------------------------
-//    X    |  D2  | D5  |     D9       | hardwired
-//    Y    |  D3  | D6  |     D10      | hardwired
-//    Z    |  D4  | D7  |     D11      | hardwired
-//    A    |  D12 | D13 |    none      |
+#include "Board.h"
 
 // Limit switches, one per pin, wired COM -> GND and NC -> pin. Declared here
 // because the axes borrow them.
-Endstop xMax(A4, Endstop::NORMALLY_CLOSED, Endstop::MAX);
+Endstop xMax(X_MAX_LIMIT, Endstop::NORMALLY_CLOSED, Endstop::MAX);
 
 // Everything an axis needs. min / max are the switches at each end of travel,
 // nullptr where there is none; homing is only read when the axis has a switch
@@ -35,18 +26,15 @@ struct AxisPins {
 
 static constexpr HomingConfig NO_HOMING = { Endstop::MIN, 0, 0, 0, 0 };
 
-//                                  name STEP DIR  min      max     homing: towards       rest  maxSteps backoff slowUs
-static constexpr AxisPins CNC_X = { "X",  2,  5, nullptr, &xMax,  { Endstop::MAX,         0,    103500,  40,     4000 } };
-static constexpr AxisPins CNC_Y = { "Y",  3,  6, nullptr, nullptr, NO_HOMING };
-static constexpr AxisPins CNC_Z = { "Z",  4,  7, nullptr, nullptr, NO_HOMING };
-static constexpr AxisPins CNC_A = { "A", 12, 13, nullptr, nullptr, NO_HOMING };
+//                                  name STEP    DIR    min      max      homing: towards rest maxSteps backoff slowUs
+static constexpr AxisPins CNC_X = { "X", X_STEP, X_DIR, nullptr, &xMax,   { Endstop::MAX, 0, 103500, 40, 4000 } };
+static constexpr AxisPins CNC_Y = { "Y", Y_STEP, Y_DIR, nullptr, nullptr, NO_HOMING };
+static constexpr AxisPins CNC_Z = { "Z", Z_STEP, Z_DIR, nullptr, nullptr, NO_HOMING };
+static constexpr AxisPins CNC_A = { "A", A_STEP, A_DIR, nullptr, nullptr, NO_HOMING };
 
 static const AxisPins AXES[] = { CNC_Z, CNC_Y, CNC_X, CNC_A };
 static constexpr uint8_t AXIS_COUNT = sizeof(AXES) / sizeof(AXES[0]);
 
-// Every socket shares this pin, so the fleet owns it rather than the axes: it
-// stays energised until every axis has gone quiet.
-static constexpr uint8_t EN_PIN = 8;   // shared enable, active LOW
 
 static constexpr uint16_t FULL_STEPS_PER_REV = 200;
 static constexpr uint8_t  MICROSTEPS         = 16;
@@ -69,6 +57,8 @@ static constexpr uint16_t      RAMP_STEPS    = 1000;
 
 LinearRamp ramp(RAMP_START_US, RAMP_STEPS);
 
+// Every socket shares the EN pin, so the fleet owns it rather than the axes:
+// it stays energised until every axis has gone quiet.
 StepperManager fleet(AXIS_COUNT, EN_PIN);
 
 // --- Settings kept across power cycles ---------------------------------------

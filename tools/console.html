@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jog Console</title>
+<!--
+  Serial console with buttons for the jog console, in the browser.
+
+  Open this file in Chrome or Edge (Web Serial is not in Safari or Firefox),
+  press Connect and pick the board's port. Close tools/monitor.py and the
+  PlatformIO monitor first - the port allows one owner - and disconnect here
+  before uploading.
+
+  Buttons are kept in this browser. "Edit buttons" adds, changes and removes
+  them; Export / Import move them to another browser as a JSON file. A command
+  with {n} in it asks for the value when pressed, e.g. "g {n}".
+-->
+<style>
+  :root {
+    --bg: #f6f6f4;
+    --panel: #ffffff;
+    --text: #1d1d1b;
+    --muted: #6b6b66;
+    --border: #dcdcd6;
+    --accent: #2f6fdb;
+    --accent-text: #ffffff;
+    --sent: #2f6fdb;
+    --error: #c23b2f;
+    --ok: #2e8b47;
+    --button: #eeeeea;
+    --button-hover: #e2e2dc;
+    --log-bg: #fbfbf9;
+
+    /* Button colours: fill, border, text */
+    --gray-bg: #e4e4e0;   --gray-bd: #b9b9b2;   --gray-fg: #2b2b28;
+    --red-bg: #fbe3e1;    --red-bd: #e3958d;    --red-fg: #8a1f16;
+    --orange-bg: #fde9d9; --orange-bd: #eca777; --orange-fg: #86400f;
+    --yellow-bg: #fbf1c7; --yellow-bd: #dcc261; --yellow-fg: #6b5400;
+    --green-bg: #e0f2e3;  --green-bd: #8ac496;  --green-fg: #1d5e2c;
+    --blue-bg: #e1ecfb;   --blue-bd: #8fb1ea;   --blue-fg: #1c4a96;
+    --purple-bg: #ece6fb; --purple-bd: #ae9be6; --purple-fg: #4d2f99;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161615;
+      --panel: #1f1f1e;
+      --text: #ecece8;
+      --muted: #9a9a94;
+      --border: #34342f;
+      --accent: #5b8ff0;
+      --accent-text: #0d0d0c;
+      --sent: #7fa8f5;
+      --error: #f07a6e;
+      --ok: #6cc788;
+      --button: #2a2a28;
+      --button-hover: #353532;
+      --log-bg: #191918;
+
+      --gray-bg: #353532;   --gray-bd: #55554f;   --gray-fg: #e4e4df;
+      --red-bg: #4a2320;    --red-bd: #8c3d35;    --red-fg: #ffc9c3;
+      --orange-bg: #4a2f1c; --orange-bd: #8d5730;  --orange-fg: #ffd5b5;
+      --yellow-bg: #433a17; --yellow-bd: #7f6c26; --yellow-fg: #f6e49a;
+      --green-bg: #1f3d26;  --green-bd: #3f7a4c;  --green-fg: #bfe9c8;
+      --blue-bg: #1e3150;   --blue-bd: #3d5f96;   --blue-fg: #c6dafc;
+      --purple-bg: #322a4d; --purple-bd: #5f4e95; --purple-fg: #ddd2fd;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 15px; margin: 0 8px 0 0; }
+  .spacer { flex: 1; }
+  .status { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .dot.on { background: var(--ok); }
+
+  button, select, input {
+    font: inherit;
+    color: var(--text);
+  }
+  button {
+    background: var(--button);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    cursor: pointer;
+  }
+  button:hover { background: var(--button-hover); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button.primary:hover { filter: brightness(1.08); }
+  select, input[type=text] {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 8px;
+  }
+
+  main {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+  }
+  @media (max-width: 760px) {
+    main { grid-template-columns: 1fr; grid-template-rows: auto minmax(300px, 1fr); }
+    #panel { order: -1; border-left: 0; border-bottom: 1px solid var(--border); max-height: 45vh; }
+  }
+
+  #terminal { display: flex; flex-direction: column; min-height: 0; }
+  #log {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    margin: 0;
+    padding: 10px 16px;
+    background: var(--log-bg);
+    font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  #log .sent { color: var(--sent); }
+  #log .note { color: var(--muted); font-style: italic; }
+  #log .error { color: var(--error); }
+
+  #sendbar {
+    display: flex;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+  }
+  #line { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  #panel {
+    overflow-y: auto;
+    padding: 12px 16px;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+  }
+  .group { margin-bottom: 14px; }
+  .group-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+  .group-head h2 {
+    flex: 1;
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+  .buttons button { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .editing .buttons button.cmd { border-style: dashed; }
+  .buttons button.cmd[data-color] {
+    background: var(--c-bg);
+    border-color: var(--c-bd);
+    color: var(--c-fg);
+  }
+  .buttons button.cmd[data-color]:hover { filter: brightness(.95); }
+  [data-color="gray"]   { --c-bg: var(--gray-bg);   --c-bd: var(--gray-bd);   --c-fg: var(--gray-fg); }
+  [data-color="red"]    { --c-bg: var(--red-bg);    --c-bd: var(--red-bd);    --c-fg: var(--red-fg); }
+  [data-color="orange"] { --c-bg: var(--orange-bg); --c-bd: var(--orange-bd); --c-fg: var(--orange-fg); }
+  [data-color="yellow"] { --c-bg: var(--yellow-bg); --c-bd: var(--yellow-bd); --c-fg: var(--yellow-fg); }
+  [data-color="green"]  { --c-bg: var(--green-bg);  --c-bd: var(--green-bd);  --c-fg: var(--green-fg); }
+  [data-color="blue"]   { --c-bg: var(--blue-bg);   --c-bd: var(--blue-bd);   --c-fg: var(--blue-fg); }
+  [data-color="purple"] { --c-bg: var(--purple-bg); --c-bd: var(--purple-bd); --c-fg: var(--purple-fg); }
+
+  .swatches { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .swatches button {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--c-bg, var(--button));
+    border: 2px solid var(--c-bd, var(--border));
+    color: var(--muted);
+  }
+  .swatches button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .edit-only { display: none; }
+  .editing .edit-only { display: inline-block; }
+  .panel-tools { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
+  .small { padding: 2px 7px; font-size: 12px; }
+
+  dialog {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    width: min(380px, calc(100vw - 32px));
+  }
+  dialog::backdrop { background: rgb(0 0 0 / .35); }
+  dialog label, dialog .field { display: block; margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+  dialog input { display: block; width: 100%; margin-top: 4px; }
+  dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+  dialog .row .left { margin-right: auto; }
+  dialog .ask-title { margin: 0 0 12px; white-space: pre-line; }
+
+  #unsupported {
+    display: none;
+    margin: 0;
+    padding: 10px 16px;
+    background: var(--error);
+    color: #fff;
+  }
+</style>
+</head>
+<body>
+
+<p id="unsupported">This browser has no Web Serial. Open this file in Chrome or Edge.</p>
+
+<header>
+  <h1>Jog Console</h1>
+  <button id="connect" class="primary">Connect</button>
+  <select id="baud" title="Baud rate">
+    <option>9600</option>
+    <option>57600</option>
+    <option selected>115200</option>
+    <option>230400</option>
+    <option>921600</option>
+  </select>
+  <span class="status"><span id="dot" class="dot"></span><span id="state">not connected</span></span>
+  <span class="spacer"></span>
+  <button id="clear">Clear log</button>
+</header>
+
+<main>
+  <section id="terminal">
+    <pre id="log"></pre>
+    <form id="sendbar" autocomplete="off">
+      <input id="line" type="text" placeholder="command, Enter sends - Up/Down for history" disabled>
+      <button id="send" type="submit" disabled>Send</button>
+    </form>
+  </section>
+
+  <aside id="panel">
+    <div id="groups"></div>
+    <div class="panel-tools">
+      <button id="edit">Edit buttons</button>
+      <button id="addGroup" class="edit-only">+ Group</button>
+      <button id="export" class="edit-only">Export</button>
+      <button id="import" class="edit-only">Import</button>
+      <button id="reset" class="edit-only">Reset to defaults</button>
+      <input id="importFile" type="file" accept="application/json" hidden>
+    </div>
+  </aside>
+</main>
+
+<dialog id="buttonDialog">
+  <form method="dialog">
+    <label>Label
+      <input id="dlgLabel" type="text" placeholder="shown on the button">
+    </label>
+    <label>Command
+      <input id="dlgCommand" type="text" placeholder="e.g. f 3200, or g {n} to ask for n">
+    </label>
+    <div class="field">Color
+      <div id="dlgColors" class="swatches"></div>
+    </div>
+    <div class="row">
+      <button id="dlgDelete" type="button" class="left">Delete</button>
+      <button type="button" data-close>Cancel</button>
+      <button id="dlgSave" value="save" class="primary">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="askDialog">
+  <form method="dialog">
+    <p id="askTitle" class="ask-title"></p>
+    <label id="askLabel">Value
+      <input id="askInput" type="text">
+    </label>
+    <div class="row">
+      <button type="button" data-close>Cancel</button>
+      <button id="askOk" value="ok" class="primary">OK</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+"use strict";
+
+// --- Asking ------------------------------------------------------------------
+
+// The page's own stand-in for prompt() and confirm(): those are blocked or
+// skipped silently in some browsers and embedded views. Resolves to the typed
+// text (or true, with input: false), or null when cancelled.
+const askDialog = document.getElementById("askDialog");
+const askTitle = document.getElementById("askTitle");
+const askLabel = document.getElementById("askLabel");
+const askInput = document.getElementById("askInput");
+const askOk = document.getElementById("askOk");
+
+function ask(title, { value = "", input = true, ok = "OK" } = {}) {
+  return new Promise((resolve) => {
+    askTitle.textContent = title;
+    askLabel.hidden = !input;
+    askInput.value = value;
+    askOk.textContent = ok;
+    askDialog.returnValue = "";
+    askDialog.addEventListener("close", () => {
+      if (askDialog.returnValue !== "ok") resolve(null);
+      else resolve(input ? askInput.value : true);
+    }, { once: true });
+    askDialog.showModal();
+    if (input) { askInput.focus(); askInput.select(); } else askOk.focus();
+  });
+}
+
+for (const b of document.querySelectorAll("dialog [data-close]")) {
+  b.addEventListener("click", () => b.closest("dialog").close("cancel"));
+}
+
+// --- Buttons -----------------------------------------------------------------
+
+// Commands of the BigHardDick jog console; see ? on the board for the full list.
+const DEFAULT_GROUPS = [
+  { name: "Select axis", buttons: [
+    { label: "X", command: "x" }, { label: "Y", command: "y" },
+    { label: "Z", command: "z" }, { label: "A", command: "a" },
+    { label: "All", command: "*" } ] },
+  { name: "Move", buttons: [
+    { label: "f", command: "f" }, { label: "b", command: "b" },
+    { label: "f 3200", command: "f 3200" }, { label: "b 3200", command: "b 3200" },
+    { label: "go to…", command: "g {n}" }, { label: "halt", command: "h", color: "red" },
+    { label: "home", command: "home" }, { label: "origin", command: "o" } ] },
+  { name: "Tuning", buttons: [
+    { label: "interval…", command: "v {n}" }, { label: "ramp…", command: "r {n}" },
+    { label: "limits…", command: "lim {n}" }, { label: "lim off", command: "lim off" } ] },
+  { name: "Gripper", buttons: [
+    { label: "grip 0", command: "grip 0" }, { label: "grip 90", command: "grip 90" },
+    { label: "grip 180", command: "grip 180" }, { label: "grip…", command: "grip {n}" } ] },
+  { name: "Settings & info", buttons: [
+    { label: "status", command: "s" }, { label: "save", command: "save" },
+    { label: "load", command: "load" }, { label: "defaults", command: "defaults" },
+    { label: "endstops", command: "l" }, { label: "mem", command: "mem" },
+    { label: "help", command: "?" } ] },
+];
+
+const STORE_KEY = "jog-console.groups.v1";
+
+// Storage can be missing or refuse (private window, blocked site data); the
+// page then works with the defaults and simply forgets edits on reload.
+function loadGroups() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORE_KEY));
+    if (Array.isArray(saved)) return saved;
+  } catch (e) { /* fall through to the defaults */ }
+  return structuredClone(DEFAULT_GROUPS);
+}
+
+function saveGroups() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(groups)); } catch (e) { /* see loadGroups */ }
+}
+
+let groups = loadGroups();
+let editing = false;
+
+const groupsEl = document.getElementById("groups");
+const panelEl = document.getElementById("panel");
+
+function renderGroups() {
+  groupsEl.replaceChildren();
+  groups.forEach((group, gi) => {
+    const box = document.createElement("div");
+    box.className = "group";
+
+    const head = document.createElement("div");
+    head.className = "group-head";
+    const title = document.createElement("h2");
+    title.textContent = group.name;
+    head.append(title);
+
+    if (editing) {
+      head.append(
+        smallButton("Rename", async () => {
+          const name = await ask("Group name", { value: group.name });
+          if (name) { group.name = name.trim(); changed(); }
+        }),
+        smallButton("↑", () => moveGroup(gi, -1), gi === 0),
+        smallButton("↓", () => moveGroup(gi, +1), gi === groups.length - 1),
+        smallButton("✕", async () => {
+          if (await ask(`Delete the group "${group.name}" and its buttons?`, { input: false, ok: "Delete" })) {
+            groups.splice(gi, 1); changed();
+          }
+        }));
+    }
+    box.append(head);
+
+    const row = document.createElement("div");
+    row.className = "buttons";
+    group.buttons.forEach((b, bi) => {
+      const el = document.createElement("button");
+      el.className = "cmd";
+      if (b.color) el.dataset.color = b.color;
+      el.textContent = b.label;
+      el.title = b.command;
+      el.addEventListener("click", () => editing ? openButtonDialog(gi, bi) : pressButton(b));
+      row.append(el);
+    });
+    if (editing) row.append(smallButton("+ Button", () => openButtonDialog(gi, -1)));
+    box.append(row);
+
+    groupsEl.append(box);
+  });
+  panelEl.classList.toggle("editing", editing);
+}
+
+function smallButton(text, onClick, disabled = false) {
+  const b = document.createElement("button");
+  b.className = "small";
+  b.textContent = text;
+  b.disabled = disabled;
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+function moveGroup(i, by) {
+  const [g] = groups.splice(i, 1);
+  groups.splice(i + by, 0, g);
+  changed();
+}
+
+function changed() {
+  saveGroups();
+  renderGroups();
+}
+
+// {n} in a command is asked for at the moment the button is pressed.
+async function pressButton(b) {
+  let command = b.command;
+  if (command.includes("{n}")) {
+    const value = await ask(`${b.label}\nsends: ${command}`);
+    if (value === null || value.trim() === "") return;
+    command = command.replaceAll("{n}", value.trim());
+  }
+  send(command);
+}
+
+// --- Button dialog -----------------------------------------------------------
+
+const dialog = document.getElementById("buttonDialog");
+const dlgLabel = document.getElementById("dlgLabel");
+const dlgCommand = document.getElementById("dlgCommand");
+const dlgDelete = document.getElementById("dlgDelete");
+const dlgColors = document.getElementById("dlgColors");
+let dialogTarget = null;   // { gi, bi }; bi -1 = a new button
+let dialogColor = "";      // "" = the plain button look
+
+const COLORS = ["", "gray", "red", "orange", "yellow", "green", "blue", "purple"];
+
+for (const c of COLORS) {
+  const sw = document.createElement("button");
+  sw.type = "button";
+  sw.title = c || "none";
+  sw.setAttribute("aria-label", c || "no color");
+  if (c) sw.dataset.color = c; else sw.textContent = "∅";
+  sw.addEventListener("click", () => pickColor(c));
+  dlgColors.append(sw);
+}
+
+function pickColor(c) {
+  dialogColor = c;
+  for (const sw of dlgColors.children) {
+    sw.setAttribute("aria-pressed", String((sw.dataset.color || "") === c));
+  }
+}
+
+function openButtonDialog(gi, bi) {
+  dialogTarget = { gi, bi };
+  const b = bi >= 0 ? groups[gi].buttons[bi] : { label: "", command: "" };
+  dlgLabel.value = b.label;
+  dlgCommand.value = b.command;
+  pickColor(COLORS.includes(b.color) ? b.color || "" : "");
+  dlgDelete.style.visibility = bi >= 0 ? "visible" : "hidden";
+  dialog.showModal();
+  dlgLabel.focus();
+}
+
+dialog.addEventListener("close", () => {
+  if (dialog.returnValue !== "save" || !dialogTarget) return;
+  const command = dlgCommand.value.trim();
+  if (!command) return;
+  const label = dlgLabel.value.trim() || command;
+  const { gi, bi } = dialogTarget;
+  const b = { label, command };
+  if (dialogColor) b.color = dialogColor;
+  if (bi >= 0) groups[gi].buttons[bi] = b;
+  else groups[gi].buttons.push(b);
+  changed();
+});
+
+dlgDelete.addEventListener("click", () => {
+  const { gi, bi } = dialogTarget;
+  groups[gi].buttons.splice(bi, 1);
+  dialogTarget = null;
+  dialog.close();
+  changed();
+});
+
+document.getElementById("edit").addEventListener("click", (e) => {
+  editing = !editing;
+  e.target.textContent = editing ? "Done" : "Edit buttons";
+  renderGroups();
+});
+
+document.getElementById("addGroup").addEventListener("click", async () => {
+  const name = await ask("Group name", { value: "New group" });
+  if (name) { groups.push({ name: name.trim(), buttons: [] }); changed(); }
+});
+
+document.getElementById("reset").addEventListener("click", async () => {
+  if (await ask("Replace every button with the defaults?", { input: false, ok: "Reset" })) {
+    groups = structuredClone(DEFAULT_GROUPS);
+    changed();
+  }
+});
+
+document.getElementById("export").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(groups, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "jog-console-buttons.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+const importFile = document.getElementById("importFile");
+document.getElementById("import").addEventListener("click", () => importFile.click());
+importFile.addEventListener("change", async () => {
+  const file = importFile.files[0];
+  importFile.value = "";
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    const valid = Array.isArray(data) && data.every(g =>
+      typeof g.name === "string" && Array.isArray(g.buttons) &&
+      g.buttons.every(b => typeof b.label === "string" && typeof b.command === "string" &&
+                           (b.color === undefined || COLORS.includes(b.color))));
+    if (!valid) throw new Error("not a button file");
+    groups = data;
+    changed();
+    note(`imported ${file.name}`);
+  } catch (e) {
+    note(`import failed: ${e.message}`, "error");
+  }
+});
+
+// --- Log ---------------------------------------------------------------------
+
+const logEl = document.getElementById("log");
+const MAX_LOG_LINES = 3000;
+
+function append(text, cls) {
+  const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
+  const span = document.createElement("span");
+  if (cls) span.className = cls;
+  span.textContent = text;
+  logEl.append(span);
+  while (logEl.childNodes.length > MAX_LOG_LINES) logEl.firstChild.remove();
+  if (atBottom) logEl.scrollTop = logEl.scrollHeight;
+}
+
+function note(text, cls = "note") {
+  append(`-- ${text}\n`, cls);
+}
+
+document.getElementById("clear").addEventListener("click", () => logEl.replaceChildren());
+
+// --- Serial ------------------------------------------------------------------
+
+const connectBtn = document.getElementById("connect");
+const baudSel = document.getElementById("baud");
+const lineEl = document.getElementById("line");
+const sendBtn = document.getElementById("send");
+const dotEl = document.getElementById("dot");
+const stateEl = document.getElementById("state");
+
+let port = null;
+let reader = null;
+let readDone = null;
+let pending = "";   // received text not yet ended by a newline
+
+function setConnected(on) {
+  connectBtn.textContent = on ? "Disconnect" : "Connect";
+  connectBtn.classList.toggle("primary", !on);
+  baudSel.disabled = on;
+  lineEl.disabled = !on;
+  sendBtn.disabled = !on;
+  dotEl.classList.toggle("on", on);
+  stateEl.textContent = on ? `connected, ${baudSel.value} baud` : "not connected";
+  if (on) lineEl.focus();
+}
+
+async function connect() {
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: Number(baudSel.value) });
+  } catch (e) {
+    port = null;
+    if (e.name !== "NotFoundError") note(`could not open the port: ${e.message}`, "error");
+    return;
+  }
+  note("connected - an Uno restarts when the port opens");
+  setConnected(true);
+  readDone = readLoop();
+}
+
+async function readLoop() {
+  const decoder = new TextDecoder();
+  while (port && port.readable) {
+    reader = port.readable.getReader();
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        receive(decoder.decode(value, { stream: true }));
+      }
+    } catch (e) {
+      note(`read stopped: ${e.message}`, "error");
+      break;
+    } finally {
+      reader.releaseLock();
+      reader = null;
+    }
+  }
+}
+
+// Text arrives in arbitrary pieces; it is shown a whole line at a time so a
+// reply is never split around a line typed in the meantime.
+function receive(text) {
+  pending += text.replace(/\r\n?/g, "\n");
+  const end = pending.lastIndexOf("\n");
+  if (end < 0) return;
+  append(pending.slice(0, end + 1));
+  pending = pending.slice(end + 1);
+}
+
+async function disconnect() {
+  const p = port;
+  port = null;
+  try {
+    if (reader) await reader.cancel();
+    if (readDone) await readDone;
+    if (p) await p.close();
+  } catch (e) { /* the device may already be gone */ }
+  if (pending) { append(pending + "\n"); pending = ""; }
+  setConnected(false);
+  note("disconnected");
+}
+
+async function send(command) {
+  if (!port || !port.writable) {
+    note("not connected", "error");
+    return;
+  }
+  append(`> ${command}\n`, "sent");
+  const writer = port.writable.getWriter();
+  try {
+    await writer.write(new TextEncoder().encode(command + "\n"));
+  } catch (e) {
+    note(`send failed: ${e.message}`, "error");
+  } finally {
+    writer.releaseLock();
+  }
+}
+
+connectBtn.addEventListener("click", () => port ? disconnect() : connect());
+
+if ("serial" in navigator) {
+  navigator.serial.addEventListener("disconnect", (e) => {
+    if (port && e.target === port) disconnect();
+  });
+} else {
+  document.getElementById("unsupported").style.display = "block";
+  connectBtn.disabled = true;
+}
+
+// --- Typed commands, with history --------------------------------------------
+
+const history = [];
+let historyAt = 0;
+
+document.getElementById("sendbar").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const command = lineEl.value.trim();
+  if (!command) return;
+  if (history[history.length - 1] !== command) history.push(command);
+  historyAt = history.length;
+  lineEl.value = "";
+  send(command);
+});
+
+lineEl.addEventListener("keydown", (e) => {
+  if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+  e.preventDefault();
+  historyAt = Math.max(0, Math.min(history.length, historyAt + (e.key === "ArrowUp" ? -1 : 1)));
+  lineEl.value = history[historyAt] ?? "";
+});
+
+renderGroups();
+</script>
+</body>
+</html>

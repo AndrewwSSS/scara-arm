@@ -1,0 +1,143 @@
+[
+  {
+    "name": "Axes",
+    "buttons": [
+      {
+        "label": "X",
+        "command": "x"
+      },
+      {
+        "label": "Y",
+        "command": "y"
+      },
+      {
+        "label": "Z",
+        "command": "z"
+      },
+      {
+        "label": "A",
+        "command": "a"
+      }
+    ]
+  },
+  {
+    "name": "Move",
+    "buttons": [
+      {
+        "label": "Move forward 10000",
+        "command": "f 10000"
+      },
+      {
+        "label": "Move backward 10000",
+        "command": "b 10000"
+      },
+      {
+        "label": "Global 0",
+        "command": "g 0"
+      },
+      {
+        "label": "halt",
+        "command": "h"
+      },
+      {
+        "label": "home",
+        "command": "home"
+      },
+      {
+        "label": "Set origin",
+        "command": "o"
+      },
+      {
+        "label": "Forward",
+        "command": "f {n}"
+      },
+      {
+        "label": "Backward",
+        "command": "b {n}"
+      }
+    ]
+  },
+  {
+    "name": "Tuning",
+    "buttons": [
+      {
+        "label": "interval 200us",
+        "command": "v 200"
+      },
+      {
+        "label": "lim off",
+        "command": "lim off"
+      },
+      {
+        "label": "interval 400us",
+        "command": "v 400"
+      },
+      {
+        "label": "interval",
+        "command": "v {n}"
+      }
+    ]
+  },
+  {
+    "name": "Gripper",
+    "buttons": [
+      {
+        "label": "grip 0",
+        "command": "grip 0"
+      },
+      {
+        "label": "grip 90",
+        "command": "grip 90"
+      },
+      {
+        "label": "grip 180",
+        "command": "grip 180"
+      },
+      {
+        "label": "grip 45",
+        "command": "grip 45"
+      },
+      {
+        "label": "grip 120",
+        "command": "grip 120"
+      },
+      {
+        "label": "grip",
+        "command": "grip {n}"
+      }
+    ]
+  },
+  {
+    "name": "Settings & info",
+    "buttons": [
+      {
+        "label": "status",
+        "command": "s"
+      },
+      {
+        "label": "save",
+        "command": "save"
+      },
+      {
+        "label": "load",
+        "command": "load"
+      },
+      {
+        "label": "defaults",
+        "command": "defaults"
+      },
+      {
+        "label": "endstops",
+        "command": "l"
+      },
+      {
+        "label": "mem",
+        "command": "mem"
+      },
+      {
+        "label": "help",
+        "command": "?"
+      }
+    ]
+  }
+]

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the host tests and builds the sketch for the board. Run it after a change to
+# Runs the host tests and builds the sketch for both boards. Run it after a change to
 # MotorControl too: the library is linked in through symlink://, so this is
 # what catches a library change that breaks this sketch.
 #
@@ -15,3 +15,4 @@ PIO="${PIO:-$(command -v pio || echo "$HOME/.platformio/penv/bin/pio")}"
 
 "$PIO" test -e native
 "$PIO" run -e uno
+"$PIO" run -e esp32

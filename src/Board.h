@@ -1,20 +1,12 @@
 #pragma once
 #include <Arduino.h>
+#include "Driver.h"
 
 // The pins, one block per board. Everything else in the sketch is shared, so a
 // new board is a new block here and nothing more.
 
 // PIN_PREFIX is how the board's own pinout names a pin, for messages: "D2" on
 // the Uno, "GPIO25" on the ESP32.
-
-// The driver on each socket. Step+dir drivers differ only in timing: the STEP
-// pulse width, set per axis from this, and the DIR setup before a reversal,
-// which MotorControl gives every driver at 5 us (MC_DIR_SETUP_US) - what the
-// slow ones need, and negligible for the rest since it is paid per reversal.
-enum class Driver : uint8_t {
-    A4988,    // and DRV8825: 2 us pulses
-    TB6600    // and DM542, opto-isolated: 5 us pulses
-};
 
 #if defined(ESP32)
 

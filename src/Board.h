@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include "Driver.h"
+#include "Engine.h"
 
 // The pins, one block per board. Everything else in the sketch is shared, so a
 // new board is a new block here and nothing more.
@@ -37,6 +38,12 @@ static constexpr Driver Y_DRIVER = Driver::A4988;
 static constexpr Driver Z_DRIVER = Driver::A4988;
 static constexpr Driver A_DRIVER = Driver::A4988;
 
+// The step engine per socket: the one line that moves a joint to another engine.
+static constexpr Engine X_ENGINE = Engine::POLLED;
+static constexpr Engine Y_ENGINE = Engine::POLLED;
+static constexpr Engine Z_ENGINE = Engine::POLLED;
+static constexpr Engine A_ENGINE = Engine::POLLED;
+
 static constexpr uint8_t X_MAX_LIMIT = 34;
 
 static constexpr uint8_t EN_PIN = 4;   // shared enable, active LOW
@@ -70,6 +77,12 @@ static constexpr Driver X_DRIVER = Driver::A4988;
 static constexpr Driver Y_DRIVER = Driver::A4988;
 static constexpr Driver Z_DRIVER = Driver::A4988;
 static constexpr Driver A_DRIVER = Driver::A4988;
+
+// The step engine per socket: the one line that moves a joint to another engine.
+static constexpr Engine X_ENGINE = Engine::POLLED;
+static constexpr Engine Y_ENGINE = Engine::POLLED;
+static constexpr Engine Z_ENGINE = Engine::POLLED;
+static constexpr Engine A_ENGINE = Engine::POLLED;
 
 static constexpr uint8_t X_MAX_LIMIT = A4;
 

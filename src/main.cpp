@@ -2,7 +2,8 @@
 #include <CommandDispatcher.h>
 #include <SettingsStore.h>
 #include <StepperManager.h>
-#include <StepDirStepper.h>
+#include <EngineStepper.h>
+#include <PolledEngine.h>
 #include <Endstop.h>
 #include <Homing.h>
 #include <LinearRamp.h>
@@ -22,6 +23,7 @@ struct AxisPins {
     uint8_t      step;
     uint8_t      dir;
     Driver       driver;
+    Engine       engine;
     Endstop*     min;
     Endstop*     max;
     HomingConfig homing;
@@ -29,11 +31,11 @@ struct AxisPins {
 
 static constexpr HomingConfig NO_HOMING = { Endstop::MIN, 0, 0, 0, 0 };
 
-//                                  name STEP    DIR    driver    min      max      homing: towards rest maxSteps backoff slowUs
-static constexpr AxisPins CNC_X = { "X", X_STEP, X_DIR, X_DRIVER, nullptr, &xMax,   { Endstop::MAX, 0, 103500, 40, 4000 } };
-static constexpr AxisPins CNC_Y = { "Y", Y_STEP, Y_DIR, Y_DRIVER, nullptr, nullptr, NO_HOMING };
-static constexpr AxisPins CNC_Z = { "Z", Z_STEP, Z_DIR, Z_DRIVER, nullptr, nullptr, NO_HOMING };
-static constexpr AxisPins CNC_A = { "A", A_STEP, A_DIR, A_DRIVER, nullptr, nullptr, NO_HOMING };
+//                                  name STEP    DIR    driver    engine    min      max      homing: towards rest maxSteps backoff slowUs
+static constexpr AxisPins CNC_X = { "X", X_STEP, X_DIR, X_DRIVER, X_ENGINE, nullptr, &xMax,   { Endstop::MAX, 0, 103500, 40, 4000 } };
+static constexpr AxisPins CNC_Y = { "Y", Y_STEP, Y_DIR, Y_DRIVER, Y_ENGINE, nullptr, nullptr, NO_HOMING };
+static constexpr AxisPins CNC_Z = { "Z", Z_STEP, Z_DIR, Z_DRIVER, Z_ENGINE, nullptr, nullptr, NO_HOMING };
+static constexpr AxisPins CNC_A = { "A", A_STEP, A_DIR, A_DRIVER, A_ENGINE, nullptr, nullptr, NO_HOMING };
 
 static const AxisPins AXES[] = { CNC_Z, CNC_Y, CNC_X, CNC_A };
 static constexpr uint8_t AXIS_COUNT = sizeof(AXES) / sizeof(AXES[0]);
@@ -129,16 +131,22 @@ static void applySettings() {
     for (uint8_t i = 0; i < fleet.size(); i++) applyAxis(i);
 }
 
-static_assert(pulseUs(Driver::A4988) == StepDirStepper::A4988_PULSE_US,
+static_assert(pulseUs(Driver::A4988) == PolledEngine::A4988_PULSE_US,
               "Driver.h and MotorControl disagree on the A4988 pulse");
-static_assert(pulseUs(Driver::TB6600) == StepDirStepper::TB6600_PULSE_US,
+static_assert(pulseUs(Driver::TB6600) == PolledEngine::TB6600_PULSE_US,
               "Driver.h and MotorControl disagree on the TB6600 pulse");
 
 static Stepper* makeAxis(const AxisPins& axis) {
-    // The EN pin is the fleet's, so the axes are built without one.
-    Stepper* stepper = new StepDirStepper(axis.step, axis.dir, STEPS_PER_REV,
-                                          StepDirStepper::NO_ENABLE_PIN, STEP_INTERVAL_US,
-                                          pulseUs(axis.driver));
+    Stepper* stepper = nullptr;
+
+    switch (axis.engine) {
+        case Engine::POLLED:
+            // The EN pin is the fleet's, so the axes are built without one.
+            stepper = new EngineStepper<PolledEngine>(STEPS_PER_REV, axis.step, axis.dir,
+                                                      PolledEngine::NO_ENABLE_PIN,
+                                                      STEP_INTERVAL_US, pulseUs(axis.driver));
+            break;
+    }
     if (stepper == nullptr) return nullptr;
 
     stepper->setEndstop(axis.min);   // nullptr is ignored
@@ -674,7 +682,8 @@ void setup() {
         Serial.print(driverName(AXES[i].driver));
         Serial.print(F(" pulse="));
         Serial.print(pulseUs(AXES[i].driver));
-        Serial.println(F("us"));
+        Serial.print(F("us engine="));
+        Serial.println(engineName(AXES[i].engine));
     }
 
     Serial.print(F("steps/rev="));

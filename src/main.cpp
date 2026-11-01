@@ -10,6 +10,7 @@
 #include <ServoManager.h>
 #include <ServoMotor.h>
 #include "Board.h"
+#include "Restart.h"
 
 // Limit switches, one per pin, wired COM -> GND and NC -> pin. Declared here
 // because the axes borrow them.
@@ -50,6 +51,8 @@ static constexpr unsigned long STEP_INTERVAL_US = 200;
 // Steps moved by a bare 'f' / 'b' command.
 static constexpr long DEFAULT_JOG_STEPS = 100;
 
+// Whether every axis with a switch homes at start-up, until `autohome` changes
+// it. Off by default: with it on, the arm moves without a command.
 static constexpr bool HOME_ON_START = false;
 
 // Release the coils once the whole fleet has been at rest this long
@@ -94,10 +97,11 @@ struct Settings {
     uint32_t      rampStartUs;
     uint16_t      rampSteps;
     uint32_t      idleReleaseMs;
+    bool          homeOnStart;
 };
 
 static constexpr uint16_t SETTINGS_MAGIC   = 0xB16D;
-static constexpr uint8_t  SETTINGS_VERSION = 1;
+static constexpr uint8_t  SETTINGS_VERSION = 2;
 
 SettingsStore<Settings> store(SETTINGS_MAGIC, SETTINGS_VERSION);
 Settings settings;
@@ -113,6 +117,7 @@ static Settings defaultSettings() {
     d.rampStartUs   = RAMP_START_US;
     d.rampSteps     = RAMP_STEPS;
     d.idleReleaseMs = IDLE_RELEASE_MS;
+    d.homeOnStart   = HOME_ON_START;
     return d;
 }
 
@@ -213,8 +218,12 @@ static void printStatus() {
         Serial.println();
     }
 
-    Serial.print(F("gripper angle="));
-    Serial.println(gripper.getAngle(GRIPPER));
+    if (GRIPPER_ENABLED) {
+        Serial.print(F("gripper angle="));
+        Serial.println(gripper.getAngle(GRIPPER));
+    } else {
+        Serial.println(F("gripper=off"));
+    }
 
     unsigned long idle = fleet.getIdleRelease();
     Serial.print(F("EN " PIN_PREFIX));
@@ -227,6 +236,9 @@ static void printStatus() {
     } else {
         Serial.println(F("off"));
     }
+
+    Serial.print(F("autohome="));
+    Serial.println(settings.homeOnStart ? F("on") : F("off"));
 
     Serial.print(F("settings: "));
     Serial.print(store.describe(store.source()));
@@ -248,9 +260,11 @@ static void printHelp() {
     Serial.println(F("  r [n]    ramp over n steps (r 0 = none, bare r toggles)"));
     Serial.println(F("  p [n]    release the coils after n ms fleet idle (p 0 = never)"));
     Serial.println(F("  lim <min> <max>  soft limits in steps | lim off"));
-    Serial.println(F("  save     keep the settings (v, r, p, lim) across power cycles"));
+    Serial.println(F("  autohome [0|1]  home every axis with a switch at start-up (bare: show)"));
+    Serial.println(F("  save     keep the settings (v, r, p, lim, autohome) across power cycles"));
     Serial.println(F("  load     back to the saved settings | defaults  back to the built-in ones"));
     Serial.println(F("  l        read each endstop pin right now (diagnostic)"));
+    Serial.println(F("  reset    restart the board; the position is lost, so home again"));
     Serial.println(F("  s        status | d debug | mem free RAM | ? help"));
 }
 
@@ -398,7 +412,9 @@ static void cmdOrigin(const CommandArgs&) {
 
 // The gripper is not an axis, so the selection does not apply to it.
 static void cmdGrip(const CommandArgs& args) {
-    if (args.has(0)) {
+    if (!GRIPPER_ENABLED) {
+        Serial.println(F("gripper disabled"));
+    } else if (args.has(0)) {
         long n = args.getLong(0);
         if (n < 0) n = 0;
         if (n > 180) n = 180;
@@ -551,6 +567,16 @@ static void cmdSave(const CommandArgs&) {
     Serial.println(F(" bytes"));
 }
 
+// Bare, it only shows the setting: a stray command should not be able to turn
+// on an arm that moves by itself at power-up.
+static void cmdAutohome(const CommandArgs& args) {
+    if (args.has(0)) {
+        settings.homeOnStart = args.getLong(0) != 0;
+        settingsChanged = true;
+    }
+    printStatus();
+}
+
 static void cmdLoad(const CommandArgs&) {
     store.load(settings, defaultSettings());
     applySettings();
@@ -582,6 +608,16 @@ static void cmdStatus(const CommandArgs&) {
 // and the stack at this moment; "never used" is how much of the gap painted
 // at start-up no call has touched since - the margin at the worst moment so
 // far. Exercise the console (home, s, l, ...) before reading it.
+// Halts every axis first, so nothing is mid-pulse when the pins let go. The
+// position is lost with the restart: home or set the origin again afterwards.
+static void cmdReset(const CommandArgs&) {
+    for (uint8_t i = 0; i < fleet.size(); i++) fleet.stopHere(i);
+
+    Serial.println(F("restarting"));
+    Serial.flush();
+    restartBoard();
+}
+
 static void cmdMemory(const CommandArgs&) {
     Serial.print(F("mem: free now "));
     Serial.print((unsigned long)freeRamNow());
@@ -626,12 +662,14 @@ static void registerCommands() {
     commands.add(F("p"), F("[n]"), cmdIdleRelease);
     commands.add(F("lim"), F("nn"), cmdLimits);
     commands.add(F("lim"), F("w"), cmdLimitsWord);
+    commands.add(F("autohome"), F("[n]"), cmdAutohome);
     commands.add(F("save"), cmdSave);
     commands.add(F("load"), cmdLoad);
     commands.add(F("defaults"), cmdDefaults);
     commands.add(F("d"), cmdDebug);
     commands.add(F("s"), cmdStatus);
     commands.add(F("mem"), cmdMemory);
+    commands.add(F("reset"), cmdReset);
     commands.add(F("?"), cmdHelp);
     commands.add(F("help"), cmdHelp);
     commands.add(F("*"), cmdSelectAll);
@@ -656,6 +694,7 @@ static void onAxisReached(uint8_t id) {
 }
 
 void setup() {
+    clearRestart();
     paintFreeRam();
     Serial.begin(115200);
     while (!Serial) { /* Uno returns immediately; harmless on native-USB boards */ }
@@ -701,25 +740,28 @@ void setup() {
     fleet.onReached(onAxisReached);
     fleet.begin();
 
-    // Blocks for a second while the servo reaches its start angle.
-    if (gripper.addMotor(new ServoMotor(GRIPPER_PIN, GRIPPER_START_ANGLE)) == ServoManager::INVALID_ID) {
-        Serial.println(F("gripper not registered, out of memory"));
+    if (GRIPPER_ENABLED) {
+        // Blocks for a second while the servo reaches its start angle.
+        if (gripper.addMotor(new ServoMotor(GRIPPER_PIN, GRIPPER_START_ANGLE)) == ServoManager::INVALID_ID) {
+            Serial.println(F("gripper not registered, out of memory"));
+        }
+        gripper.begin();
     }
-    gripper.begin();
 
-    if (HOME_ON_START) {
+    printStatus();
+    printHelp();
+
+    if (settings.homeOnStart) {
+        Serial.println(F("autohome=on, homing"));
         uint8_t keep = selected;
         selected = ALL_AXES;
         homeSelected();
         selected = keep;
     }
-
-    printStatus();
-    printHelp();
 }
 
 void loop() {
     fleet.update();
-    gripper.update();
+    if (GRIPPER_ENABLED) gripper.update();
     console.poll(commands);
 }

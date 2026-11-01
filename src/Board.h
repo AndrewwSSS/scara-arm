@@ -51,6 +51,10 @@ static constexpr uint8_t EN_PIN = 4;   // shared enable, active LOW
 // Signal only: the servo gets its own 5-6 V supply with a common GND.
 static constexpr uint8_t GRIPPER_PIN = 21;
 
+// false when no servo is connected: the gripper is then never attached, and its
+// pin is left alone.
+static constexpr bool GRIPPER_ENABLED = false;
+
 #else
 
 #define PIN_PREFIX "D"
@@ -91,5 +95,9 @@ static constexpr uint8_t EN_PIN = 8;   // shared enable, active LOW
 // The Z limit header's signal pin, free because Z has no switch. Signal only:
 // the servo gets its own 5-6 V supply with a common GND.
 static constexpr uint8_t GRIPPER_PIN = 11;
+
+// false when no servo is connected: the gripper is then never attached, and its
+// pin is left alone.
+static constexpr bool GRIPPER_ENABLED = false;
 
 #endif

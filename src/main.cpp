@@ -214,8 +214,12 @@ static void printStatus() {
         Serial.println();
     }
 
-    Serial.print(F("gripper angle="));
-    Serial.println(gripper.getAngle(GRIPPER));
+    if (GRIPPER_ENABLED) {
+        Serial.print(F("gripper angle="));
+        Serial.println(gripper.getAngle(GRIPPER));
+    } else {
+        Serial.println(F("gripper=off"));
+    }
 
     unsigned long idle = fleet.getIdleRelease();
     Serial.print(F("EN " PIN_PREFIX));
@@ -400,7 +404,9 @@ static void cmdOrigin(const CommandArgs&) {
 
 // The gripper is not an axis, so the selection does not apply to it.
 static void cmdGrip(const CommandArgs& args) {
-    if (args.has(0)) {
+    if (!GRIPPER_ENABLED) {
+        Serial.println(F("gripper disabled"));
+    } else if (args.has(0)) {
         long n = args.getLong(0);
         if (n < 0) n = 0;
         if (n > 180) n = 180;
@@ -715,11 +721,13 @@ void setup() {
     fleet.onReached(onAxisReached);
     fleet.begin();
 
-    // Blocks for a second while the servo reaches its start angle.
-    if (gripper.addMotor(new ServoMotor(GRIPPER_PIN, GRIPPER_START_ANGLE)) == ServoManager::INVALID_ID) {
-        Serial.println(F("gripper not registered, out of memory"));
+    if (GRIPPER_ENABLED) {
+        // Blocks for a second while the servo reaches its start angle.
+        if (gripper.addMotor(new ServoMotor(GRIPPER_PIN, GRIPPER_START_ANGLE)) == ServoManager::INVALID_ID) {
+            Serial.println(F("gripper not registered, out of memory"));
+        }
+        gripper.begin();
     }
-    gripper.begin();
 
     if (HOME_ON_START) {
         uint8_t keep = selected;
@@ -734,6 +742,6 @@ void setup() {
 
 void loop() {
     fleet.update();
-    gripper.update();
+    if (GRIPPER_ENABLED) gripper.update();
     console.poll(commands);
 }

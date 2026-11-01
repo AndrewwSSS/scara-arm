@@ -10,6 +10,7 @@
 #include <ServoManager.h>
 #include <ServoMotor.h>
 #include "Board.h"
+#include "Restart.h"
 
 // Limit switches, one per pin, wired COM -> GND and NC -> pin. Declared here
 // because the axes borrow them.
@@ -251,6 +252,7 @@ static void printHelp() {
     Serial.println(F("  save     keep the settings (v, r, p, lim) across power cycles"));
     Serial.println(F("  load     back to the saved settings | defaults  back to the built-in ones"));
     Serial.println(F("  l        read each endstop pin right now (diagnostic)"));
+    Serial.println(F("  reset    restart the board; the position is lost, so home again"));
     Serial.println(F("  s        status | d debug | mem free RAM | ? help"));
 }
 
@@ -582,6 +584,16 @@ static void cmdStatus(const CommandArgs&) {
 // and the stack at this moment; "never used" is how much of the gap painted
 // at start-up no call has touched since - the margin at the worst moment so
 // far. Exercise the console (home, s, l, ...) before reading it.
+// Halts every axis first, so nothing is mid-pulse when the pins let go. The
+// position is lost with the restart: home or set the origin again afterwards.
+static void cmdReset(const CommandArgs&) {
+    for (uint8_t i = 0; i < fleet.size(); i++) fleet.stopHere(i);
+
+    Serial.println(F("restarting"));
+    Serial.flush();
+    restartBoard();
+}
+
 static void cmdMemory(const CommandArgs&) {
     Serial.print(F("mem: free now "));
     Serial.print((unsigned long)freeRamNow());
@@ -632,6 +644,7 @@ static void registerCommands() {
     commands.add(F("d"), cmdDebug);
     commands.add(F("s"), cmdStatus);
     commands.add(F("mem"), cmdMemory);
+    commands.add(F("reset"), cmdReset);
     commands.add(F("?"), cmdHelp);
     commands.add(F("help"), cmdHelp);
     commands.add(F("*"), cmdSelectAll);
@@ -656,6 +669,7 @@ static void onAxisReached(uint8_t id) {
 }
 
 void setup() {
+    clearRestart();
     paintFreeRam();
     Serial.begin(115200);
     while (!Serial) { /* Uno returns immediately; harmless on native-USB boards */ }

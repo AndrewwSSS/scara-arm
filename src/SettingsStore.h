@@ -2,39 +2,9 @@
 #include <Arduino.h>
 #include <EEPROM.h>
 
-// Keeps one settings struct in EEPROM across power cycles, and refuses to
-// hand back anything it cannot vouch for.
-//
-//   struct Settings { uint16_t interval; long minStep, maxStep; };
-//   const Settings DEFAULTS = { 400, 0, 3200 };
-//
-//   SettingsStore<Settings> store(0xB16D, 1);   // magic, layout version
-//   Settings settings;
-//
-//   store.load(settings, DEFAULTS);   // in setup(): saved values, or the defaults
-//   store.save(settings);             // when asked to: the "save" command
-//
-// The struct is written with a small header and a checksum:
-//
-//   magic (2) | version (1) | size (2) | the struct | CRC-16 (2)
-//
-// load() takes the saved values only when every check passes, and otherwise
-// copies the defaults and says why (source()):
-//
-//   magic    something else is there, or nothing ever was - a blank chip
-//   version  the sketch's layout moved on: bump it whenever the struct changes
-//   size     the struct changed size and the version was not bumped
-//   CRC      ours, but damaged - power lost mid-save, a worn cell
-//
-// Tests: pio test -e native (test/test_settings_store).
-//
-// Works on AVR and ESP32 alike through the core's EEPROM library. On the
-// ESP32 that EEPROM lives in flash (NVS) and is made big enough on first use;
-// saves are committed there before save() returns. On AVR, put() rewrites only
-// the bytes that changed, so saving the same values costs no wear.
-//
-// The struct is stored as raw bytes, so keep it plain data: numbers, bools,
-// fixed arrays - no pointers, no String.
+// Keeps one plain-data settings struct in EEPROM, with a header and CRC, and
+// falls back to defaults when the record cannot be verified. Usage and format:
+// docs/settings.md.
 
 namespace ss_detail {
 

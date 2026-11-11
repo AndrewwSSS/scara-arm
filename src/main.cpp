@@ -12,13 +12,11 @@
 #include "Board.h"
 #include "Restart.h"
 
-// Limit switches, one per pin, wired COM -> GND and NC -> pin. Declared here
-// because the axes borrow them.
+// Normally closed (COM -> GND, NC -> pin). File scope: the axes borrow it.
 Endstop xMax(X_MAX_LIMIT, Endstop::NORMALLY_CLOSED, Endstop::MAX);
 
-// Everything an axis needs. min / max are the switches at each end of travel,
-// nullptr where there is none; homing is only read when the axis has a switch
-// on the side it names.
+// min / max: the switch at each end of travel, or nullptr. homing is used only
+// when there is a switch on the side it names.
 struct AxisPins {
     const char*  name;
     uint8_t      step;
@@ -51,38 +49,29 @@ static constexpr unsigned long STEP_INTERVAL_US = 200;
 // Steps moved by a bare 'f' / 'b' command.
 static constexpr long DEFAULT_JOG_STEPS = 100;
 
-// Whether every axis with a switch homes at start-up, until `autohome` changes
-// it. Off by default: with it on, the arm moves without a command.
+// Off by default: when on, the arm moves at power-up without a command.
 static constexpr bool HOME_ON_START = false;
 
-// Release the coils once the whole fleet has been at rest this long
+// Coils are released once the whole fleet has been idle this long.
 static constexpr unsigned long IDLE_RELEASE_MS = 200;
 
-// The start interval has to be slow enough that the axis can pull in from rest,
-// and the ramp long enough that it reaches STEP_INTERVAL_US comfortably.
+// Start slow enough for the motor to pull in from rest; ramp long enough to
+// reach STEP_INTERVAL_US.
 static constexpr unsigned long RAMP_START_US = 1000;
 static constexpr uint16_t      RAMP_STEPS    = 1000;
 
 LinearRamp ramp(RAMP_START_US, RAMP_STEPS);
 
-// Every socket shares the EN pin, so the fleet owns it rather than the axes:
-// it stays energised until every axis has gone quiet.
+// The sockets share one EN pin, so the fleet owns it, not the axes.
 StepperManager fleet(AXIS_COUNT, EN_PIN);
 
-// The gripper is driven to this angle at start-up, before any command.
 static constexpr uint16_t GRIPPER_START_ANGLE = 90;
 
 ServoManager gripper(1);
 static constexpr uint8_t GRIPPER = 0;   // its id in the gripper fleet
 
 // --- Settings kept across power cycles ---------------------------------------
-//
-// What the console can change and `save` keeps. The commands change these and
-// apply them to the fleet; at start-up they come back from EEPROM, or from the
-// constants above when nothing valid was saved.
-//
-// Bump SETTINGS_VERSION whenever these structs change, so an old save is
-// ignored rather than read into the wrong fields.
+// Bump SETTINGS_VERSION whenever these structs change. See docs/settings.md.
 
 struct AxisSettings {
     uint32_t intervalUs;
@@ -106,7 +95,7 @@ static constexpr uint8_t  SETTINGS_VERSION = 2;
 SettingsStore<Settings> store(SETTINGS_MAGIC, SETTINGS_VERSION);
 Settings settings;
 
-// Changed since the last save or load, so `s` can say they would be lost.
+// Unsaved changes, reported by `s`.
 static bool settingsChanged = false;
 
 static Settings defaultSettings() {
@@ -146,7 +135,7 @@ static Stepper* makeAxis(const AxisPins& axis) {
 
     switch (axis.engine) {
         case Engine::POLLED:
-            // The EN pin is the fleet's, so the axes are built without one.
+            // No per-axis EN: the fleet owns the shared pin.
             stepper = new EngineStepper<PolledEngine>(STEPS_PER_REV, axis.step, axis.dir,
                                                       PolledEngine::NO_ENABLE_PIN,
                                                       STEP_INTERVAL_US, pulseUs(axis.driver));
@@ -179,9 +168,8 @@ static const char* selectionName() {
     return (selected == ALL_AXES) ? "*" : AXES[selected].name;
 }
 
-// Messages are printed piece by piece with the text in F(): on the Uno a
-// plain "literal" is copied into RAM at start-up, and joining Strings borrows
-// heap the board can barely spare.
+// Text is printed piece by piece from F() strings: on the Uno, plain literals
+// are copied to RAM and String concatenation fragments the heap.
 
 static void printStatus() {
     for (uint8_t i = 0; i < fleet.size(); i++) {
@@ -282,9 +270,7 @@ static void printEndstop(const char* axis, const Endstop& e) {
     Serial.println(e.readRaw() ? F("TRIGGERED") : F("clear"));
 }
 
-// Blocking: the console does not answer until every selected axis is done.
-// Axes without a switch on their homing side are skipped, so '*' then 'home'
-// homes everything that can be homed.
+// Blocking. Skips axes without a switch on their homing side.
 static void homeSelected() {
     bool any = false;
 
@@ -324,10 +310,8 @@ static uint8_t axisFromLetter(char c) {
 }
 
 // --- Free RAM ---------------------------------------------------------------
-//
-// On the Uno, setup() first fills the gap between the heap and the stack with
-// a marker byte. Whatever still holds the marker later was never reached by
-// the stack or the heap, which is the worst-case margin so far.
+// On AVR, setup() paints the heap-stack gap with a marker byte; bytes that
+// still hold it were never used, which gives the worst-case margin.
 
 #if defined(__AVR__)
 extern char  __heap_start;
@@ -367,10 +351,8 @@ static void   paintFreeRam()  {}
 #endif
 
 // --- Console commands -------------------------------------------------------
-//
-// Each one is registered in registerCommands() with the arguments it takes;
-// CommandDispatcher checks them before the handler runs, so a handler never
-// sees a missing number or a word where a number belongs.
+// Arguments are validated by CommandDispatcher before a handler runs.
+// Behaviour of each command: docs/commands.md.
 
 CommandDispatcher<28> commands(Serial);
 LineReader<24>        console(Serial);
@@ -410,7 +392,7 @@ static void cmdOrigin(const CommandArgs&) {
     Serial.println(F(" origin reset, step 0 is here"));
 }
 
-// The gripper is not an axis, so the selection does not apply to it.
+// The gripper is not an axis: the selection does not apply.
 static void cmdGrip(const CommandArgs& args) {
     if (!GRIPPER_ENABLED) {
         Serial.println(F("gripper disabled"));
@@ -437,8 +419,6 @@ static void cmdHalt(const CommandArgs&) {
     Serial.println(F(" halted"));
 }
 
-// Diagnostic only: the raw pin, and what the configured wiring mode makes of
-// it. Moves nothing.
 static void cmdEndstops(const CommandArgs&) {
     for (uint8_t i = 0; i < fleet.size(); i++) {
         if (!hasEndstops(AXES[i])) {
@@ -452,8 +432,7 @@ static void cmdEndstops(const CommandArgs&) {
     }
 }
 
-// Takes effect on the next pulse, mid-move included - there is no ramp, so a
-// big jump under load is where a stepper loses steps.
+// Applies from the next pulse, without a ramp: a large jump under load can lose steps.
 static void cmdInterval(const CommandArgs& args) {
     long n = args.getLong(0);
     unsigned long us = (n > 0) ? (unsigned long)n : STEP_INTERVAL_US;
@@ -472,9 +451,7 @@ static void cmdInterval(const CommandArgs& args) {
     Serial.println(F("us"));
 }
 
-// The ramp length is the shared profile's, so a number here moves every axis
-// using it; what the selection controls is whether the axis is on the profile
-// at all. Bare 'r' toggles, 'r 0' turns it off, 'r <n>' sets and turns it on.
+// The ramp length is shared by all axes; the selection only decides which use it.
 static void cmdRamp(const CommandArgs& args) {
     long n = args.getLong(0);
     if (n > 0) {
@@ -495,9 +472,7 @@ static void cmdRamp(const CommandArgs& args) {
     printStatus();
 }
 
-// One EN line for the shield, so this is a fleet-wide setting and ignores the
-// axis selection. A bare 'p' toggles, which is the quick way to feel the
-// difference on the shaft; 'p <n>' sets it outright.
+// Fleet-wide: one EN line for all sockets, so the selection does not apply.
 static void cmdIdleRelease(const CommandArgs& args) {
     long n = args.getLong(0);
     unsigned long idle = (n > 0) ? (unsigned long)n : 0;
@@ -508,15 +483,13 @@ static void cmdIdleRelease(const CommandArgs& args) {
     settings.idleReleaseMs = idle;
     settingsChanged = true;
     fleet.setIdleRelease(idle);
-    // Turning it off does not re-energise on its own, and a released fleet
-    // would report positions it is not holding.
+    // Re-energise now: a released fleet would report positions it is not holding.
     if (idle == 0) fleet.enable();
 
     printStatus();
 }
 
-// Takes effect at once, but only once armed - after homing or 'o'. Before
-// that the position is a guess, so a limit would be measured from nowhere.
+// Enforced only once the position is known (after homing or 'o').
 static void cmdLimits(const CommandArgs& args) {
     long lo = args.getLong(0);
     long hi = args.getLong(1);
@@ -567,8 +540,7 @@ static void cmdSave(const CommandArgs&) {
     Serial.println(F(" bytes"));
 }
 
-// Bare, it only shows the setting: a stray command should not be able to turn
-// on an arm that moves by itself at power-up.
+// Bare `autohome` only shows the setting, so a stray command cannot enable it.
 static void cmdAutohome(const CommandArgs& args) {
     if (args.has(0)) {
         settings.homeOnStart = args.getLong(0) != 0;
@@ -584,8 +556,7 @@ static void cmdLoad(const CommandArgs&) {
     printStatus();
 }
 
-// Does not touch what is saved: 'save' afterwards to make it stick, or 'load'
-// to go back.
+// Leaves the saved settings untouched.
 static void cmdDefaults(const CommandArgs&) {
     settings = defaultSettings();
     applySettings();
@@ -604,12 +575,7 @@ static void cmdStatus(const CommandArgs&) {
     printStatus();
 }
 
-// RAM the board has spare. On the Uno "free now" is the gap between the heap
-// and the stack at this moment; "never used" is how much of the gap painted
-// at start-up no call has touched since - the margin at the worst moment so
-// far. Exercise the console (home, s, l, ...) before reading it.
-// Halts every axis first, so nothing is mid-pulse when the pins let go. The
-// position is lost with the restart: home or set the origin again afterwards.
+// Halts every axis first, so no pulse is cut short. The position is lost.
 static void cmdReset(const CommandArgs&) {
     for (uint8_t i = 0; i < fleet.size(); i++) fleet.stopHere(i);
 
@@ -674,8 +640,7 @@ static void registerCommands() {
     commands.add(F("help"), cmdHelp);
     commands.add(F("*"), cmdSelectAll);
 
-    // One entry per axis letter. F() strings have to be literal, so the
-    // letters are spelled out here; keep them in step with AXES.
+    // F() needs literals, so the axis letters are spelled out: keep in step with AXES.
     commands.add(F("x"), cmdSelectAxis);
     commands.add(F("y"), cmdSelectAxis);
     commands.add(F("z"), cmdSelectAxis);

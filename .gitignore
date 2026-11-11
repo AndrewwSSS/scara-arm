@@ -77,3 +77,6 @@ Testing/
 
 # macOS
 .DS_Store
+
+# Local PlatformIO overrides
+platformio.local.ini

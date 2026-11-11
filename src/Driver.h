@@ -1,17 +1,15 @@
 #pragma once
 #include <Arduino.h>
 
-// The driver on a socket. Step+dir drivers differ only in timing: the STEP
-// pulse width, set per axis from this, and the DIR setup before a reversal,
-// which MotorControl gives every driver at 5 us (MC_DIR_SETUP_US) - what the
-// slow ones need, and negligible for the rest since it is paid per reversal.
+// The driver on a socket. Step+dir drivers differ here only in STEP pulse
+// width; DIR setup is MotorControl's MC_DIR_SETUP_US for all of them.
 enum class Driver : uint8_t {
     A4988,    // and DRV8825: 2 us pulses
     TB6600    // and DM542, opto-isolated: 5 us pulses
 };
 
-// Minimum STEP high time, per the driver's datasheet. main.cpp checks these
-// against MotorControl's own constants at compile time.
+// Minimum STEP high time from the datasheet; main.cpp static_asserts it
+// against MotorControl's constants.
 constexpr uint8_t pulseUs(Driver driver) {
     return (driver == Driver::TB6600) ? 5 : 2;
 }

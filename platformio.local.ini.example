@@ -1,0 +1,6 @@
+; Copy to platformio.local.ini to build against the libraries checked out next
+; to this repo, so library changes are tested before they are released.
+[deps]
+lib_deps =
+    symlink://../MotorControl
+    symlink://../CommandDispatcher

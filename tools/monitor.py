@@ -1,17 +1,9 @@
 #!/usr/bin/env python3
-"""Serial monitor that does the line editing on this laptop.
+"""Serial monitor with local line editing; a line is sent on Enter.
 
-`pio device monitor` hands every keystroke straight to the board, so the board
-has to echo and handle backspace itself. This does the opposite: the line is
-composed here with full readline editing - you see what you type, backspace
-erases, arrow keys move, up/down recall history - and nothing is sent until
-you press Enter. The sketch stays silent about input and only prints replies.
+Usage: python3 tools/monitor.py [port] [baud]
 
-    python3 tools/monitor.py [port] [baud]
-
-Port defaults to the first /dev/cu.usbserial* (or /dev/ttyUSB* on Linux, or
-the first COM port on Windows).
-Ctrl+D or Ctrl+C quits. Close it before uploading - the port allows one owner.
+See docs/monitor.md.
 """
 import glob
 import os
@@ -28,12 +20,10 @@ REEXEC_FLAG = "MONITOR_REEXEC"
 
 
 def ensure_pyserial():
-    """Re-exec under an interpreter that actually has pyserial.
+    """Re-exec under an interpreter that has pyserial.
 
-    The name `serial` on PyPI belongs to an unrelated serialization package, so
-    a Python that has that one installed imports fine and then has no
-    serial.Serial. PlatformIO ships a venv with real pyserial, so borrow that
-    rather than changing the user's environment.
+    The PyPI package `serial` is unrelated and has no serial.Serial. PlatformIO's
+    venv ships pyserial, so use it instead of changing the user's environment.
     """
     try:
         import serial

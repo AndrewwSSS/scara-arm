@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Runs the host tests and builds the sketch for both boards. Run it after a change to
-# MotorControl too: the library is linked in through symlink://, so this is
-# what catches a library change that breaks this sketch.
+# Runs the host tests and builds the sketch for both boards. With a
+# platformio.local.ini, it builds against the local library checkouts, so run
+# it after a library change too.
 #
 #   scripts/check.sh            from anywhere inside the project
 #   PIO=/path/to/pio scripts/check.sh

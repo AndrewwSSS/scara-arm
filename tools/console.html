@@ -296,9 +296,8 @@
 
 // --- Asking ------------------------------------------------------------------
 
-// The page's own stand-in for prompt() and confirm(): those are blocked or
-// skipped silently in some browsers and embedded views. Resolves to the typed
-// text (or true, with input: false), or null when cancelled.
+// Replaces prompt() and confirm(), which some browsers and embedded views block.
+// Resolves to the typed text (true when input: false), or null when cancelled.
 const askDialog = document.getElementById("askDialog");
 const askTitle = document.getElementById("askTitle");
 const askLabel = document.getElementById("askLabel");
@@ -353,8 +352,8 @@ const DEFAULT_GROUPS = [
 
 const STORE_KEY = "jog-console.groups.v1";
 
-// Storage can be missing or refuse (private window, blocked site data); the
-// page then works with the defaults and simply forgets edits on reload.
+// Storage may be unavailable (private window, blocked site data): the page then
+// uses the defaults and does not keep edits.
 function loadGroups() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORE_KEY));
@@ -364,7 +363,7 @@ function loadGroups() {
 }
 
 function saveGroups() {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(groups)); } catch (e) { /* see loadGroups */ }
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(groups)); } catch (e) { /* storage unavailable: edits are not kept */ }
 }
 
 let groups = loadGroups();

@@ -1,0 +1,35 @@
+# Runs scripts/check.sh: the native unit tests, then the sketch built for the
+# Uno and the ESP32 against the released libraries.
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Toolchains and platforms are large; keep them between runs.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('scripts/check.sh', 'platformio.ini') }}
+          restore-keys: pio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install platformio==6.2.0
+
+      - name: Run checks
+        run: scripts/check.sh

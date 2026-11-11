@@ -26,7 +26,7 @@
 // Clear of the boot strapping pins (0, 2, 5, 12, 15), the flash (6-11), the
 // USB serial (1, 3) and GPIO 14, which pulses during boot. The shared EN needs
 // a pull-up to the drivers' logic supply so they stay off while the ESP32
-// boots. Wiring rules: the migration plan's Appendix.
+// boots.
 
 static constexpr uint8_t X_STEP = 25, X_DIR = 26;
 static constexpr uint8_t Y_STEP = 27, Y_DIR = 33;

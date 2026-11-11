@@ -5,16 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Jog Console</title>
 <!--
-  Serial console with buttons for the jog console, in the browser.
-
-  Open this file in Chrome or Edge (Web Serial is not in Safari or Firefox),
-  press Connect and pick the board's port. Close tools/monitor.py and the
-  PlatformIO monitor first - the port allows one owner - and disconnect here
-  before uploading.
-
-  Buttons are kept in this browser. "Edit buttons" adds, changes and removes
-  them; Export / Import move them to another browser as a JSON file. A command
-  with {n} in it asks for the value when pressed, e.g. "g {n}".
+  Browser control panel for the jog console, over Web Serial.
+  Usage: docs/console.md.
 -->
 <style>
   :root {
@@ -227,11 +219,12 @@
 </head>
 <body>
 
-<p id="unsupported">This browser has no Web Serial. Open this file in Chrome or Edge.</p>
+<p id="unsupported">This browser has no Web Serial. Open this page in Chrome, Edge or a recent Firefox-based browser.</p>
 
 <header>
   <h1>Jog Console</h1>
   <button id="connect" class="primary">Connect</button>
+  <button id="pick" title="Choose a different board">Other port…</button>
   <select id="baud" title="Baud rate">
     <option>9600</option>
     <option>57600</option>
@@ -591,6 +584,7 @@ document.getElementById("clear").addEventListener("click", () => logEl.replaceCh
 // --- Serial ------------------------------------------------------------------
 
 const connectBtn = document.getElementById("connect");
+const pickBtn = document.getElementById("pick");
 const baudSel = document.getElementById("baud");
 const lineEl = document.getElementById("line");
 const sendBtn = document.getElementById("send");
@@ -601,11 +595,32 @@ let port = null;
 let reader = null;
 let readDone = null;
 let pending = "";   // received text not yet ended by a newline
+let opening = false;   // guards against two concurrent open() calls
+
+// Web Serial identifies a port only by USB vendor/product ID, so boards with
+// the same USB chip are not told apart.
+// auto: false after Disconnect, so the port stays free for an upload.
+const PORT_KEY = "jog-console.port.v1";
+
+function loadLastPort() {
+  try { return JSON.parse(localStorage.getItem(PORT_KEY)); } catch (e) { return null; }
+}
+
+function saveLastPort(last) {
+  try { localStorage.setItem(PORT_KEY, JSON.stringify(last)); } catch (e) { /* storage unavailable: the port is not remembered */ }
+}
+
+function isLastPort(p, last) {
+  const info = p.getInfo();
+  return info.usbVendorId !== undefined &&
+         info.usbVendorId === last.usbVendorId && info.usbProductId === last.usbProductId;
+}
 
 function setConnected(on) {
   connectBtn.textContent = on ? "Disconnect" : "Connect";
   connectBtn.classList.toggle("primary", !on);
   baudSel.disabled = on;
+  pickBtn.disabled = on;
   lineEl.disabled = !on;
   sendBtn.disabled = !on;
   dotEl.classList.toggle("on", on);
@@ -613,18 +628,67 @@ function setConnected(on) {
   if (on) lineEl.focus();
 }
 
+// The remembered port if exactly one granted port matches it, else null.
+async function rememberedPort() {
+  const last = loadLastPort();
+  if (!last) return null;
+
+  const matches = (await navigator.serial.getPorts()).filter((p) => isLastPort(p, last));
+  if (matches.length > 1) {
+    note("two boards with the same USB chip are plugged in - use Other port... to pick one");
+  }
+  return (matches.length === 1) ? matches[0] : null;
+}
+
 async function connect() {
+  const p = await rememberedPort();
+  if (p) await openPort(p, "connected to the last board");
+  else   await pickPort();
+}
+
+async function pickPort() {
+  let p;
   try {
-    port = await navigator.serial.requestPort();
-    await port.open({ baudRate: Number(baudSel.value) });
+    p = await navigator.serial.requestPort();
   } catch (e) {
-    port = null;
-    if (e.name !== "NotFoundError") note(`could not open the port: ${e.message}`, "error");
+    if (e.name !== "NotFoundError") note(`could not pick a port: ${e.message}`, "error");
     return;
   }
-  note("connected - an Uno restarts when the port opens");
+  await openPort(p, "connected");
+}
+
+async function openPort(p, how) {
+  if (port || opening) return;
+  opening = true;
+  try {
+    await p.open({ baudRate: Number(baudSel.value) });
+  } catch (e) {
+    note(`could not open the port: ${e.message}`, "error");
+    return;
+  } finally {
+    opening = false;
+  }
+
+  port = p;
+  const { usbVendorId, usbProductId } = p.getInfo();
+  saveLastPort({ usbVendorId, usbProductId, baud: baudSel.value, auto: true });
+  note(`${how} - an Uno restarts when the port opens`);
   setConnected(true);
   readDone = readLoop();
+}
+
+// Reopens the remembered port unless the user pressed Disconnect.
+// onLoad: report a port the browser forgot on reload.
+async function autoConnect(how, onLoad = false) {
+  const last = loadLastPort();
+  if (port || !last || !last.auto) return;
+
+  const p = await rememberedPort();
+  if (p) {
+    await openPort(p, how);
+  } else if (onLoad && (await navigator.serial.getPorts()).length === 0) {
+    note("the browser forgot the port on reload - press Connect (see docs/console.md)");
+  }
 }
 
 async function readLoop() {
@@ -657,7 +721,8 @@ function receive(text) {
   pending = pending.slice(end + 1);
 }
 
-async function disconnect() {
+// byUser: the Disconnect button; also turns auto-reconnect off.
+async function disconnect(byUser = false) {
   const p = port;
   port = null;
   try {
@@ -667,7 +732,11 @@ async function disconnect() {
   } catch (e) { /* the device may already be gone */ }
   if (pending) { append(pending + "\n"); pending = ""; }
   setConnected(false);
-  note("disconnected");
+
+  const last = loadLastPort();
+  if (byUser && last) saveLastPort({ ...last, auto: false });
+  note(byUser ? "disconnected - press Connect to use it again"
+              : "board gone - it reconnects when plugged back in");
 }
 
 async function send(command) {
@@ -686,15 +755,22 @@ async function send(command) {
   }
 }
 
-connectBtn.addEventListener("click", () => port ? disconnect() : connect());
+connectBtn.addEventListener("click", () => port ? disconnect(true) : connect());
+pickBtn.addEventListener("click", () => pickPort());
 
 if ("serial" in navigator) {
   navigator.serial.addEventListener("disconnect", (e) => {
     if (port && e.target === port) disconnect();
   });
+  navigator.serial.addEventListener("connect", () => autoConnect("board plugged in, reconnected"));
+
+  const last = loadLastPort();
+  if (last && [...baudSel.options].some((o) => o.value === last.baud)) baudSel.value = last.baud;
+  autoConnect("reconnected to the last board", true);
 } else {
   document.getElementById("unsupported").style.display = "block";
   connectBtn.disabled = true;
+  pickBtn.disabled = true;
 }
 
 // --- Typed commands, with history --------------------------------------------

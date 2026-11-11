@@ -4,19 +4,23 @@
     "buttons": [
       {
         "label": "X",
-        "command": "x"
+        "command": "x",
+        "color": "red"
       },
       {
         "label": "Y",
-        "command": "y"
+        "command": "y",
+        "color": "blue"
       },
       {
         "label": "Z",
-        "command": "z"
+        "command": "z",
+        "color": "purple"
       },
       {
         "label": "A",
-        "command": "a"
+        "command": "a",
+        "color": "orange"
       }
     ]
   },
@@ -25,35 +29,38 @@
     "buttons": [
       {
         "label": "Move forward 10000",
-        "command": "f 10000"
+        "command": "f 10000",
+        "color": "red"
       },
       {
         "label": "Move backward 10000",
-        "command": "b 10000"
-      },
-      {
-        "label": "Global 0",
-        "command": "g 0"
+        "command": "b 10000",
+        "color": "red"
       },
       {
         "label": "halt",
-        "command": "h"
+        "command": "h",
+        "color": "yellow"
       },
       {
         "label": "home",
-        "command": "home"
+        "command": "home",
+        "color": "purple"
       },
       {
-        "label": "Set origin",
-        "command": "o"
+        "label": "Origin 0",
+        "command": "o",
+        "color": "orange"
       },
       {
-        "label": "Forward",
-        "command": "f {n}"
+        "label": "Forward n",
+        "command": "f {n}",
+        "color": "green"
       },
       {
-        "label": "Backward",
-        "command": "b {n}"
+        "label": "Backward n",
+        "command": "b {n}",
+        "color": "green"
       }
     ]
   },
@@ -62,19 +69,92 @@
     "buttons": [
       {
         "label": "interval 200us",
-        "command": "v 200"
+        "command": "v 200",
+        "color": "blue"
       },
       {
         "label": "lim off",
-        "command": "lim off"
+        "command": "lim off",
+        "color": "yellow"
       },
       {
         "label": "interval 400us",
-        "command": "v 400"
+        "command": "v 400",
+        "color": "blue"
       },
       {
-        "label": "interval",
-        "command": "v {n}"
+        "label": "interval n",
+        "command": "v {n}",
+        "color": "green"
+      }
+    ]
+  },
+  {
+    "name": "Settings & info",
+    "buttons": [
+      {
+        "label": "status",
+        "command": "s",
+        "color": "green"
+      },
+      {
+        "label": "save",
+        "command": "save",
+        "color": "blue"
+      },
+      {
+        "label": "load",
+        "command": "load",
+        "color": "blue"
+      },
+      {
+        "label": "defaults",
+        "command": "defaults",
+        "color": "red"
+      },
+      {
+        "label": "endstops",
+        "command": "l",
+        "color": "green"
+      },
+      {
+        "label": "mem",
+        "command": "mem",
+        "color": "green"
+      },
+      {
+        "label": "help",
+        "command": "?",
+        "color": "purple"
+      }
+    ]
+  },
+  {
+    "name": "Ramp",
+    "buttons": [
+      {
+        "label": "Ramp off",
+        "command": "r 0"
+      }
+    ]
+  },
+  {
+    "name": "Restart & Emergency",
+    "buttons": [
+      {
+        "label": "Restart",
+        "command": "reset",
+        "color": "green"
+      },
+      {
+        "label": "Autohoming on",
+        "command": "autohome 1",
+        "color": "red"
+      },
+      {
+        "label": "Autohoming off",
+        "command": "autohome 0",
+        "color": "red"
       }
     ]
   },
@@ -104,39 +184,6 @@
       {
         "label": "grip",
         "command": "grip {n}"
-      }
-    ]
-  },
-  {
-    "name": "Settings & info",
-    "buttons": [
-      {
-        "label": "status",
-        "command": "s"
-      },
-      {
-        "label": "save",
-        "command": "save"
-      },
-      {
-        "label": "load",
-        "command": "load"
-      },
-      {
-        "label": "defaults",
-        "command": "defaults"
-      },
-      {
-        "label": "endstops",
-        "command": "l"
-      },
-      {
-        "label": "mem",
-        "command": "mem"
-      },
-      {
-        "label": "help",
-        "command": "?"
       }
     ]
   }
